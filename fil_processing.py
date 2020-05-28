@@ -13,6 +13,7 @@ from numba import jit
 
 FIRE_NUM = 5
 
+
 def find_tip_in_filament(im, i, j, was_here, padding):
     was_here[i][j] = 255
     found = 0
@@ -116,7 +117,7 @@ class Tracks:
         from utils import file_header
         self.text_form = file_header
         for track_number, track in enumerate(self.paths):
-        # for track_number, track in enumerate(self.tips):
+            # for track_number, track in enumerate(self.tips):
             self.text_form += f"Track {track_number + 1} 00FFFF true\n"
             # xs = track.xs
             # ys = track.ys
@@ -164,7 +165,6 @@ class Filament:
         ])
         d = convolve2d(img, kernel)
         return len(np.where(d == 11)[0])
-
 
     @staticmethod
     def fils_distance_cm(filament_1, filament_2):
@@ -218,7 +218,6 @@ class Filament:
         overlap_score /= (short_len - 1)
         return overlap_score
 
-
     @staticmethod
     def overlap_score_fast(filament_1, filament_2, fil_direction=1):
         fil_direction = 1
@@ -229,7 +228,6 @@ class Filament:
                                                                                             filament_2)
         return Filament.overlap_score_fast_numba(long_contour, long_len, short_contour,
                                                  short_len, fil_direction=fil_direction)
-
 
     @staticmethod
     def draw_filaments(filaments, img=None, to_draw=True):
@@ -323,8 +321,8 @@ def get_biggest_chunk_array(fil):
 def get_biggest_chunk_array_2(fil):
     branches = np.where(np.abs(np.diff(np.array(fil), axis=0)) > 1)[0]
     if len(branches) == 2:
-        branch_1 = fil[0:branches[0]+1]
-        branch_2 = fil[branches[0]+1:]
+        branch_1 = fil[0:branches[0] + 1]
+        branch_2 = fil[branches[0] + 1:]
         dist_between_two_chucnks = np.sqrt(((branch_1[-1] - branch_2[0]) ** 2).sum())
         if dist_between_two_chucnks < 10:
             return fil
@@ -372,6 +370,7 @@ def choose_process_func(processing_frame: str):
     else:
         raise NotImplementedError
 
+
 class Frame:
     def __init__(self, img, frame_num, processing_frame):
         """
@@ -382,7 +381,6 @@ class Frame:
         process_filaments = choose_process_func(processing_frame)
         self.filaments = process_filaments(find_filaments(img))
         self.links = []
-
 
     @staticmethod
     def draw_frame(frame):
@@ -397,6 +395,7 @@ def choose_distance(type_):
         return Filament.fils_distance_cm
     elif type_ == 'fast_like':
         return Filament.fils_distance_fast
+
 
 # from fire import Cluster
 # from typing import List
@@ -580,7 +579,7 @@ class Video:
             for coord in filament.coords:
                 distance_from_fil_to_track.append(min([np.sqrt(((point - coord) ** 2).sum()) for point in track]))
             sorted(distance_from_fil_to_track)
-            return distance_from_fil_to_track[len(distance_from_fil_to_track)//2]
+            return distance_from_fil_to_track[len(distance_from_fil_to_track) // 2]
 
         def assign_fire_track_for_each_filament(frame, fire_tracks, frame_num, min_dist_constant=5):
             for filament in frame.filaments:
@@ -609,7 +608,8 @@ class Video:
             visualize_branches((512, 512), all_branches)
 
             ### TODO: change min_dist to some universal const
-            for frame in list(video.frames)[frame_num_start:frame_num_start+FIRE_NUM]:  # working with first fire_frame
+            for frame in list(video.frames)[
+                         frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frame
                 frame_num = frame.num
                 assign_fire_track_for_each_filament(frame, fire_tracks, frame_num)
 
@@ -701,7 +701,7 @@ class Video:
                     ### TODO: check that we really can do this
                     if k == frame_num_start + FIRE_NUM - 1 and k - 1 in existing_frames:
                         print('it is a last one!')
-                        filaments = ft.frames_filaments[k-1]
+                        filaments = ft.frames_filaments[k - 1]
                         if len(filaments) != 1:
                             continue
                         filament_start = filaments[0][1].coords[0]
@@ -711,14 +711,14 @@ class Video:
                         e_point = find_closest_ind_in_array_to_point(fire_points, filament_end)
                         print(s_point, e_point, len(fire_points))
                         if abs(s_point) < 3 or abs(s_point - len(fire_points)) < 3 or \
-                            abs(e_point) < 3 or abs(e_point - len(fire_points)) < 3:
+                                abs(e_point) < 3 or abs(e_point - len(fire_points)) < 3:
                             continue
                         ### if filament is on the border of fire track, then we need to continue something
 
                         future_filament = None
-                    elif k-1 in existing_frames and k+1 in existing_frames:
+                    elif k - 1 in existing_frames and k + 1 in existing_frames:
                         ### can interpolate???, try to reconst k
-                        future_filament = ft.frames_filaments[k+1][0][1]
+                        future_filament = ft.frames_filaments[k + 1][0][1]
                     else:
                         continue
 
@@ -729,7 +729,8 @@ class Video:
                     # ft.frames_filaments[k-1].append([1.0, new_filament])
                     frame2new_fils[k].append(new_filament)
 
-                    distances_to_filaments = [calc_distance_track_filament(filament.coords.tolist(), new_filament) for filament in video.frames[k].filaments]
+                    distances_to_filaments = [calc_distance_track_filament(filament.coords.tolist(), new_filament) for
+                                              filament in video.frames[k].filaments]
                     min_dist = min(distances_to_filaments)
 
                     # TODO: fix random constant
@@ -740,9 +741,12 @@ class Video:
                         """
                         min_ind = distances_to_filaments.index(min_dist)
                         too_long_filament = video.frames[k].filaments[min_ind]
-                        relation = [[min([np.sqrt(((coord-coord2)**2).sum()) for coord2 in new_filament.coords]), coord] for coord in too_long_filament.coords]
+                        relation = [
+                            [min([np.sqrt(((coord - coord2) ** 2).sum()) for coord2 in new_filament.coords]), coord] for
+                            coord in too_long_filament.coords]
                         print(relation)
-                        shorted_coords = [coord for coord in too_long_filament.coords if min([np.sqrt(((coord-coord2)**2).sum()) for coord2 in new_filament.coords]) > 2]
+                        shorted_coords = [coord for coord in too_long_filament.coords if min(
+                            [np.sqrt(((coord - coord2) ** 2).sum()) for coord2 in new_filament.coords]) > 2]
                         # TODO: what if it breaks three long branches and as result only one will remain, but must remain two!
                         print(len(shorted_coords))
                         shorted_coords = get_biggest_chunk_array_2(shorted_coords)
@@ -755,7 +759,8 @@ class Video:
                     print('empty frame')
 
                 ### change all firetracks from one cluster
-                fire_track_from_one_cluster = [f_track for f_track in fire_tracks if f_track.cluster_num == ft.cluster_num]
+                fire_track_from_one_cluster = [f_track for f_track in fire_tracks if
+                                               f_track.cluster_num == ft.cluster_num]
                 for frame in list(video.frames)[
                              frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frame
                     frame_num = frame.num
@@ -764,8 +769,8 @@ class Video:
                     frame2new_fils[frame_num] = []
                     assign_fire_track_for_each_filament(frame, fire_track_from_one_cluster, frame_num)
 
-
-            for frame in list(video.frames)[frame_num_start:frame_num_start+FIRE_NUM]:  # working with first fire_frames
+            for frame in list(video.frames)[
+                         frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frames
                 frame.filaments = [fil for fil in frame.filaments if fil not in all_merged_fils]
                 frame.filaments.extend(frame2new_fils[frame.num])
 
@@ -773,7 +778,7 @@ class Video:
 
         fire_tracks_list = []
         for ind, fire_clusters in enumerate(self.fire_frames):
-            fire_tracks = process_fire_cluster(self, fire_clusters, ind*FIRE_NUM)
+            fire_tracks = process_fire_cluster(self, fire_clusters, ind * FIRE_NUM)
             fire_tracks_list.append(fire_tracks)
 
     def create_links_gnn(self, distance_type='cm'):
@@ -794,7 +799,8 @@ class Video:
             for path_num, path in enumerate(self.tracks.paths):
                 if path_num + 1 == 5:
                     print(5)
-                if np.abs(path.filament_path[-1].center_x - 358) < 10 and np.abs(path.filament_path[-1].center_y - 236) < 10:
+                if np.abs(path.filament_path[-1].center_x - 358) < 10 and np.abs(
+                        path.filament_path[-1].center_y - 236) < 10:
                     print('ha')
                 if path.is_finished:
                     continue
@@ -843,15 +849,16 @@ class Video:
                     first_filament = path.filament_path[-2]
                     head = second_filament.head
                     tail = second_filament.tail
-                    min_head = min([np.sqrt(((point-head)**2).sum()) for point in first_filament.coords])
-                    min_tail = min([np.sqrt(((point-tail)**2).sum()) for point in first_filament.coords])
+                    min_head = min([np.sqrt(((point - head) ** 2).sum()) for point in first_filament.coords])
+                    min_tail = min([np.sqrt(((point - tail) ** 2).sum()) for point in first_filament.coords])
                     if min_tail > min_head:
                         path.filament_path = [
                             Filament(first_filament.coords[::-1], number_of_tips=first_filament.number_of_tips),
                             Filament(second_filament.coords[::-1], number_of_tips=second_filament.number_of_tips)]
 
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
-            self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num]) for fil_num in new_filaments]
+            self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num]) for fil_num in
+                                  new_filaments]
 
         print(len(self.tracks.paths))
         self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 3]

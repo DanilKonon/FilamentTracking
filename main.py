@@ -1,28 +1,23 @@
-import numpy as np
-from skimage.io import imread, imsave
-import sys
-import os
-from mod_for_picts import get_picture_s, gauss, gradient, create_gauss
-from matplotlib import pyplot as plt
-# import tifffile
-from skimage.morphology import skeletonize, skeletonize_3d
-from scipy.signal import convolve2d
-from skimage import filters
-from scipy.ndimage.filters import gaussian_filter1d, gaussian_filter
-from numba import jit
+import argparse
+import pickle as pkl
+import shutil
 from pathlib import Path
+
+import numpy as np
+from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import figaspect
-from skimage.util import img_as_float
+from numba import jit
+from scipy.ndimage.filters import gaussian_filter1d
+from scipy.signal import convolve2d
+from skimage import filters
 from skimage.color import rgb2gray
 from skimage.external import tifffile
-from skimage.feature import hessian_matrix
-import pickle as pkl
+# import tifffile
+from skimage.morphology import skeletonize
+
 from fil_processing import Video
-import shutil
-import argparse
-from skimage.filters import hessian, meijering, frangi
-import cv2
+
 
 # global g_x, g_y, g_xx, g_yy, g_xy
 
@@ -99,7 +94,7 @@ def solve_quadratic_equation(a, b, c):
     a, b, c -- numpy arrays
     """
     d = b ** 2 - 4 * a * c
-#     print(d)
+    #     print(d)
     eps = 0.000000001
     if np.all(d >= 0):
         s_d = np.sqrt(d)
@@ -154,10 +149,11 @@ def follow_edges(strong, weak, padding):
         for j in range(padding, sh[1] - padding):
             if strong[i][j] != 0:
                 # if (140 < i < 200) and (290 < j < 310):
-                    # print("Found something")
+                # print("Found something")
                 follow_strong_edge(i, j, strong, edge_pict, weak)
 
     return edge_pict
+
 
 # TODO: think about 1 or 255 is max
 def my_canny(image,
@@ -263,7 +259,7 @@ def create_gauss_2(sigma):
         n = 1
 
     sh = 2 * n + 1
-    y, x = np.mgrid[-sh//2:sh//2+1, -sh//2:sh//2+1]
+    y, x = np.mgrid[-sh // 2:sh // 2 + 1, -sh // 2:sh // 2 + 1]
     y = -y.astype('float')
     x = x.astype('float')
     g_v = 1.0 / (2 * np.pi * sigma * sigma) * np.exp(-(x * x + y * y) / (2 * sigma * sigma))
@@ -328,7 +324,7 @@ def create_steer_filter_1(image, sigma, make_otsu_thresh=True):
     print('whole_thetas: ', whole_thetas.shape)
 
     whole_image = (np.cos(whole_thetas) ** 2) * q_1 + np.cos(whole_thetas) * \
-                   np.sin(whole_thetas) * q_2 + (np.sin(whole_thetas) ** 2) * q_3
+                  np.sin(whole_thetas) * q_2 + (np.sin(whole_thetas) ** 2) * q_3
 
     ridge_image = whole_image.max(axis=0)
 
@@ -368,19 +364,19 @@ def create_steer_filter_1(image, sigma, make_otsu_thresh=True):
 
 # def get_pairs():
 #
-    # image = get_picture_s('./../ImageProc1/img/old_lena.bmp', to_gray=True)[0]
-    #
-    # # image, theta = create_steer_filter_1(t[i], sigma=2.0)
-    # ridge_image = my_canny(image=image)
-    #
-    # fig = plt.figure(figsize=(25, 25))
-    # fig.add_subplot(1, 2, 1)
-    # plt.imshow(ridge_image, cmap='gray')
-    # plt.title('ridge_image')
-    # fig.add_subplot(1, 2, 2)
-    # plt.imshow(image, cmap='gray')
-    # plt.title('original image')
-    # fig.savefig(f'./image_lena.png', bbox_inches='tight')
+# image = get_picture_s('./../ImageProc1/img/old_lena.bmp', to_gray=True)[0]
+#
+# # image, theta = create_steer_filter_1(t[i], sigma=2.0)
+# ridge_image = my_canny(image=image)
+#
+# fig = plt.figure(figsize=(25, 25))
+# fig.add_subplot(1, 2, 1)
+# plt.imshow(ridge_image, cmap='gray')
+# plt.title('ridge_image')
+# fig.add_subplot(1, 2, 2)
+# plt.imshow(image, cmap='gray')
+# plt.title('original image')
+# fig.savefig(f'./image_lena.png', bbox_inches='tight')
 
 class TiffVideo:
     period_fire_frames = 5
@@ -422,7 +418,7 @@ class TiffVideo:
         self.fire_frames = []
         num_of_fire_frames = self.t.shape[0] // self.period_fire_frames
         for i in range(num_of_fire_frames):
-            pict = self.t[i*self.period_fire_frames:(i+1)*self.period_fire_frames, :, :]
+            pict = self.t[i * self.period_fire_frames:(i + 1) * self.period_fire_frames, :, :]
             processed_pict = process_pict_for_fire(pict)
             # processed_pict = processed_pict[170:323, 329:450]
             clusters = get_clusters_from_image(processed_pict)
@@ -505,7 +501,6 @@ class TiffVideo:
             plt.imshow(self.t[ind], cmap='gray')
             plt.title('original image')
             plt.tight_layout()
-
 
         # TODO: add option to add several pdfs. parse all pdfs in directory, choose max number, add 1, use this one
         pdf_path = '.'.join(str(self.result_file).split('.')[:-1]) + '.pdf'

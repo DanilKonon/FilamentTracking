@@ -1,5 +1,3 @@
-
-
 class Cluster:
     def __init__(self):
         self.nucl_points = []
