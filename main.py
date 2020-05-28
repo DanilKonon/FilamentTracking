@@ -20,6 +20,7 @@ from skimage.feature import hessian_matrix
 import pickle as pkl
 from fil_processing import Video
 import shutil
+import argparse
 from skimage.filters import hessian, meijering, frangi
 import cv2
 
@@ -195,12 +196,14 @@ def my_canny(image,
         theta = np.arctan2(g_y, g_x)
         print(theta.min(), theta.max())
 
-        plt.title('im1_mag')
-        plt.imshow(im1_mag, cmap='gray')
-        plt.show()
-        plt.title('theta')
-        plt.imshow(theta, cmap='hsv')
-        plt.show()
+        # TODO: add argument
+        if False:
+            plt.title('im1_mag')
+            plt.imshow(im1_mag, cmap='gray')
+            plt.show()
+            plt.title('theta')
+            plt.imshow(theta, cmap='hsv')
+            plt.show()
 
         print('gradient: ', im1_mag.shape)
         print('theta: ', theta.shape)
@@ -389,7 +392,7 @@ class TiffVideo:
         self.path_to_results = self.path_to_results / params['file_path'].stem
         self.path_to_results.mkdir(exist_ok=True)
 
-        shutil.copy(params['file_path'], self.path_to_results / params['file_path'].name)
+        shutil.copy(params['file_path'], self.path_to_results / f'orig{params["file_path"].suffix}')
 
         if params['to_load']:
             self._load_data(params['file_path'])
@@ -513,22 +516,35 @@ class TiffVideo:
         plt.close('all')
 
 
-# TODO: add config!
-def main():
+def create_argparse():
+    parser = argparse.ArgumentParser(description='Process tiff file with filaments for future analysis')
+    parser.add_argument('file_path', type=str, help="path to tiff file for analysis")
+    parser.add_argument('--sigma', type=float, default=2.0, help='sigma in gaussian')
+    parser.add_argument('--m_percent', type=float, default=0.8, help='canny parameter for hysteresis')
+    parser.add_argument('--processing_frame', type=str, default='simple', help='does nothing for noe')
+    parser.add_argument('--to_load', type=bool, default=False, help='does nothing for now')
+    return parser
+
+
+# TODO: add config! or argparse
+# TODO: use only argparse withput dict params
+def main(args):
     params = {
-        'sigma': 2.0,
-        'to_load': False,
-        'file_path': Path(
-            '/Users/danilkononykhin/PycharmProjects/Filaments/' + \
-            'Actin_filaments/Motility_Oct.19__tiff_mdf/Long_filaments_crossed_1.tif'
-        ),
-        'm_percent': 0.8,
-        'processing_frame': 'simple'
+        'sigma': args.sigma,
+        'to_load': args.to_load,
+        'file_path': Path(args.file_path),
+        'm_percent': args.m_percent,
+        'processing_frame': args.processing_frame
     }
+
+    print(params)
 
     tf = TiffVideo(params)
     # tf.save_pairs_to_pdf_file(mode='2')
 
 
 if __name__ == '__main__':
-    main()
+    parser = create_argparse()
+    pargs = parser.parse_args()
+
+    main(pargs)

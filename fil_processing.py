@@ -7,6 +7,7 @@ from scipy.signal import convolve2d
 from scipy.optimize import linear_sum_assignment
 import cv2
 import pathlib
+import argparse
 from math import fabs
 from numba import jit
 
@@ -916,16 +917,19 @@ def load_vid(path_to_results: pathlib.Path) -> Video:
     return vid
 
 
-def main():
+def create_argparse():
+    parser = argparse.ArgumentParser(description='Track processed tiff file with filaments')
+    parser.add_argument('file_path', type=str, help="path to tiff file for tracking")
+    parser.add_argument('--use_fire', type=bool, default=False, help='use fire for tracking')
+    parser.add_argument('--dist_type', type=str, default='cm', choices=['cm', 'fast_like'],
+                        help='what type of distance to use between filaments')
+    parser.add_argument('--mdf_to_save', type=str, default='gnn_cm.mdf',
+                        help="name of saved mdf file with tracking results")
+    return parser
 
-    params = {
-        'file_path': pathlib.Path(
-            '/Users/danilkononykhin/PycharmProjects/Filaments/' + \
-            'Actin_filaments/Motility_Oct.19__tiff_mdf/Long_filaments_crossed_1.tif'
-        ),
-    }
-    path_to_file = params['file_path']
 
+def main(args):
+    path_to_file = pathlib.Path(args.file_path)
     path_to_results = pathlib.Path('./results')
     path_to_results = path_to_results / path_to_file.stem
 
@@ -933,15 +937,19 @@ def main():
 
     # for frame in vid.frames:
     #     Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]))
-    # vid.work_with_fire()
-    vid.create_links_gnn(distance_type='cm')
-    vid.tracks._save_data_to_mtrackj_format_new(path_to_results / './gnn_cm_test_fire_6.mdf')
+    if args.use_fire:
+        vid.work_with_fire()
+
+    vid.create_links_gnn(distance_type=args.dist_type)
+    vid.tracks._save_data_to_mtrackj_format_new(path_to_results / args.mdf_to_save)
     # vid.visualize_by_frames('./visualized_pickle.tif')
     # vid.visualize_by_frames(str(path_to_results / './what_filament_left_fire_2.tif'))
     # for frame in vid.frames:
     #     Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]))
 
 
-
 if __name__ == "__main__":
-    main()
+    parser = create_argparse()
+    pargs = parser.parse_args()
+
+    main(pargs)

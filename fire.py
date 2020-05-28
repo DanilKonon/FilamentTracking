@@ -619,7 +619,8 @@ def display_image(img):
     plt.imshow(img)
     plt.show()
 
-def process_pict_for_fire(picture, type_='max', to_display=True):
+
+def process_pict_for_fire(picture, type_='max', to_display=False):
     """
     :param picture: shape of picture is [z, x, y]
     :param type_: more types are coming soon!
@@ -640,12 +641,15 @@ def process_pict_for_fire(picture, type_='max', to_display=True):
     thresh_otsu = threshold_otsu(image)
     binary_image = (image >= thresh_otsu).astype(int)
 
-    display_image(binary_image)
+    if to_display:
+        display_image(binary_image)
 
     transformaed_bi = distance_transform_edt(binary_image)
     transformaed_bi = gaussian(transformaed_bi)
 
-    display_image(transformaed_bi)
+    if to_display:
+        display_image(transformaed_bi)
+
     return transformaed_bi
 
 
@@ -773,7 +777,9 @@ def get_clusters_from_image(image=None):
     if image is None:
         image = load_image_example()
     nucleous_points_gl = find_nucleous_points(image)
-    draw_nucl_points(image, nucleous_points_gl)
+
+    # if to_display:
+    # draw_nucl_points(image, nucleous_points_gl)
     clusters = create_clusters(image, nucleous_points_gl)
     ### 4 кластер ! ##
 
@@ -781,7 +787,9 @@ def get_clusters_from_image(image=None):
     for ind, cl in enumerate(clusters):
         for branch in cl.branches:
             all_branches.append(branch)
-    visualize_branches((512, 512), all_branches)
+
+    # if to_display:
+    #     visualize_branches((512, 512), all_branches)
 
     clusters = prune_clusters(clusters)  # TODO: check do i need to save clusters!!!
 
@@ -789,7 +797,8 @@ def get_clusters_from_image(image=None):
     for ind, cl in enumerate(clusters):
         for branch in cl.branches:
             all_branches.append(branch)
-    visualize_branches((512, 512), all_branches)
+    # if to_display:
+    # visualize_branches((512, 512), all_branches)
     return clusters
 
 
