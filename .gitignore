@@ -18,3 +18,6 @@
 /main_2.py
 /img3
 /img3_fire
+*.xml
+*.pyc
+/.idea
