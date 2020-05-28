@@ -19,3 +19,13 @@ conda create --name <env> --python=3.7 --file requirements_conda.txt
 
 1. Сначала необходимо запустить main.py, указав путь к последовательности филаментов в tiff формате
 2. После этого нужно запустить for_processing.py, снова указав путь к последовательности
+
+Пример. Сначала используем main.py.
+
+```
+python main.py /Users/danilkononykhin/PycharmProjects/Filaments/Actin_filaments/Motility_Mar.19__tiff_mdf/25031911.tif   
+```
+Теперь используем fil_processing.py.
+```
+python fil_processing.py /Users/danilkononykhin/PycharmProjects/Filaments/Actin_filaments/Motility_Mar.19__tiff_mdf/25031911.tif   
+```
