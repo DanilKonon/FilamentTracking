@@ -605,7 +605,9 @@ class Video:
                     fire_tracks.append(FireTrack(cl, ind, branch))
 
             from fire import visualize_branches
-            visualize_branches((512, 512), all_branches)
+
+            #if to_display:
+            # visualize_branches((512, 512), all_branches)
 
             ### TODO: change min_dist to some universal const
             for frame in list(video.frames)[
