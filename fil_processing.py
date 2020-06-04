@@ -465,6 +465,53 @@ def find_closest_ind_in_array_to_point(points, close_point):
             min_ind = ind
     return min_ind
 
+def find_tail(path):
+    """
+    Modifies path variable
+    """
+    if len(path.filament_path) < 2:
+        return False
+
+    second_filament = path.filament_path[-1]
+    first_filament = path.filament_path[-2]
+    head = second_filament.head
+    tail = second_filament.tail
+    min_head = min([np.sqrt(((point - head) ** 2).sum()) for point in first_filament.coords])
+    min_tail = min([np.sqrt(((point - tail) ** 2).sum()) for point in first_filament.coords])
+    if min_tail > min_head:
+        path.filament_path = [
+            *path.filament_path[:-2],
+            Filament(first_filament.coords[::-1], number_of_tips=first_filament.number_of_tips),
+            Filament(second_filament.coords[::-1], number_of_tips=second_filament.number_of_tips)
+        ]
+
+    return True
+
+
+def add_filament_v1(path, found_filament):
+    """
+    For the first time calc with func find_tail
+    After that, use only overlap score
+    """
+    ##### GET OVERLAP
+    prev_filament = path.next_filament_predicted
+    if Filament.overlap_score_fast(prev_filament, found_filament) < 0:
+        found_filament = Filament(found_filament.coords[::-1],
+                                  number_of_tips=found_filament.number_of_tips)
+    #########
+    path.add(found_filament)
+    if len(path.filament_path) == 2:
+        find_tail(path)
+
+
+# TODO: try this method
+def add_filament_v2(path, found_filament):
+    """
+    Don't use distance from FIRE,
+    calc tail and head each time
+    """
+    path.add(found_filament)
+    find_tail(path)
 
 def reconstruct_filament(prev_filament: Filament, future_filament: Filament,
                          mean_filament_length: float, ft: FireTrack):
@@ -843,24 +890,7 @@ class Video:
                     path.is_finished = is_path_finished
                     continue
 
-                ##### GET OVERLAP
-                prev_filament = path.next_filament_predicted
-                if Filament.overlap_score_fast(prev_filament, found_filament) < 0:
-                    found_filament = Filament(found_filament.coords[::-1],
-                                              number_of_tips=found_filament.number_of_tips)
-                #########
-                path.add(found_filament)
-                if len(path.filament_path) == 2:
-                    second_filament = path.filament_path[-1]
-                    first_filament = path.filament_path[-2]
-                    head = second_filament.head
-                    tail = second_filament.tail
-                    min_head = min([np.sqrt(((point - head) ** 2).sum()) for point in first_filament.coords])
-                    min_tail = min([np.sqrt(((point - tail) ** 2).sum()) for point in first_filament.coords])
-                    if min_tail > min_head:
-                        path.filament_path = [
-                            Filament(first_filament.coords[::-1], number_of_tips=first_filament.number_of_tips),
-                            Filament(second_filament.coords[::-1], number_of_tips=second_filament.number_of_tips)]
+                add_filament_v1(path, found_filament)
 
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
             self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num]) for fil_num in
@@ -911,8 +941,9 @@ class Video:
                     path_to_continue.is_finished = True
                 else:
                     filament_to_continue_path = frame.filaments[c_i]
-                    path_to_continue.add(filament_to_continue_path)
+                    add_filament_v1(path_to_continue, filament_to_continue_path)
                     used_filaments[c_i] += 1
+
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
             self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num]) for fil_num in
                                   new_filaments]
@@ -938,6 +969,8 @@ def create_argparse():
                         help='what type of distance to use between filaments')
     parser.add_argument('--mdf_to_save', type=str, default='gnn_cm.mdf',
                         help="name of saved mdf file with tracking results")
+    parser.add_argument('--tracker_type', type=str, default='gnn', choices=['gnn', 'lap'],
+                        help="data association method to use")
     return parser
 
 
@@ -953,7 +986,13 @@ def main(args):
     if args.use_fire:
         vid.work_with_fire()
 
-    vid.create_links_gnn(distance_type=args.dist_type)
+    if args.tracker_type == 'gnn':
+        vid.create_links_gnn(distance_type=args.dist_type)
+    elif args.tracker_type == 'lap':
+        vid.create_links_nn_la(distance_type=args.dist_type)
+    else:
+        print('Something is wrong. Not known tracker type')
+        return
     vid.tracks._save_data_to_mtrackj_format_new(path_to_results / args.mdf_to_save)
     # vid.visualize_by_frames('./visualized_pickle.tif')
     # vid.visualize_by_frames(str(path_to_results / './what_filament_left_fire_2.tif'))
