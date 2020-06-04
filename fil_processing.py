@@ -307,12 +307,9 @@ class Path:
 def get_biggest_chunk_array(fil):
     branches = np.where(np.abs(np.diff(np.array(fil), axis=0)) > 1)[0]
     if len(branches) > 0:
-        # print('bad fil')
         possible_cuts = np.concatenate([[0], branches + 1, [len(fil)]])
         max_cut = np.argmax(np.diff(possible_cuts))
         fil = fil[possible_cuts[max_cut]:possible_cuts[max_cut + 1]]
-        # print(possible_cuts[max_cut+1] - possible_cuts[max_cut])
-        # all_branches.append(branches)
     if len(fil) <= 3:
         fil = None
     return fil
@@ -673,7 +670,8 @@ class Video:
 
                             ### TODO: fix assume that we have only two fils that need to be merged
                             # need to connect two filaments the right way
-                            assert len(fils_to_merge) == 2
+                            if len(fils_to_merge) != 2:
+                                continue
 
                             first_filament = fils_to_merge[0]
                             second_filament = fils_to_merge[1]
@@ -789,7 +787,9 @@ class Video:
             frame.filaments = [filament for filament in frame.filaments if filament.length >= 3]
         for frame_num, frame in enumerate(self.frames):
             print(frame_num)
-            if frame_num == 3:
+            if frame_num == 17:
+                print(5)
+            if frame_num == 12:
                 print(3)
             print(len(frame.filaments))
             # frame.filaments = [el for el in frame.filaments if el.number_of_tips == 2]
@@ -820,12 +820,16 @@ class Video:
 
                     closest_filament = min(range(len(distance_to_fils)), key=lambda i: distance_to_fils[i])
                     found_filament = frame.filaments[closest_filament]
-                    max_length = max(found_filament.length, path.next_filament_predicted.length)
-                    min_length = min(found_filament.length, path.next_filament_predicted.length)
+                    path_fils_length = [fil.length for fil in path.filament_path]
+                    mean_path_len = sum(path_fils_length) / len(path_fils_length)
+                    max_length = max(found_filament.length, mean_path_len)
+                    min_length = min(found_filament.length, mean_path_len)
 
-                    if max_length / min_length > 1.5:
+                    # TODO: fix this random constant
+                    if max_length > 25 and max_length / min_length > 1.5:
                         ### bad filament
                         distance_to_fils[closest_filament] = 10_000  # very big number
+                        print(frame_num, closest_filament, max_length, min_length)
                         continue
 
                     used_filaments[closest_filament] += 1
@@ -920,7 +924,7 @@ class Video:
 
 def load_vid(path_to_results: pathlib.Path) -> Video:
     # TODO: make better save
-    path_to_save = path_to_results / 'save.pkl'
+    path_to_save = str(path_to_results / 'save.pkl')
     with open(path_to_save, 'rb') as f:
         vid = pkl.load(f)
     return vid

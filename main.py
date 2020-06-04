@@ -386,6 +386,7 @@ class TiffVideo:
     def __init__(self, params):
         self.params = params
         self.path_to_results = self.path_to_results / params['file_path'].stem
+        print(self.path_to_results)
         self.path_to_results.mkdir(exist_ok=True)
 
         shutil.copy(params['file_path'], self.path_to_results / f'orig{params["file_path"].suffix}')
@@ -440,7 +441,7 @@ class TiffVideo:
             lighted_image[:, :, 1] = self.t[i]
             lighted_image[:, :, 2] = self.t[i]
 
-            # lighted_image = lighted_image[170:323, 329:450, :]
+            # lighted_image = lighted_image[350:460, 0:300, :]
 
             self.results.append(lighted_image)
 
