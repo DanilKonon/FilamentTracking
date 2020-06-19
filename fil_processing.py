@@ -78,10 +78,10 @@ class Tracks:
     # def __init__(self):
     #     self.paths = []
     #     self.tips = []
-    def __init__(self, frame=None):
+    def __init__(self, frame=None, prediction_type='trivial'):
         self.tips = []
         if frame is not None:
-            self.paths = [Path(frame.num, filament) for filament in frame.filaments]
+            self.paths = [Path(frame.num, filament, prediction_type) for filament in frame.filaments]
         else:
             self.paths = []
 
@@ -249,13 +249,66 @@ class Filament:
         else:
             return img
 
+from filterpy.kalman import KalmanFilter
+from filterpy.common import Q_discrete_white_noise
+
+def init_kf():
+    kf = KalmanFilter(dim_x=4, dim_z=2)
+
+    kf.F = np.array([
+        [1., 0, 1, 0],
+        [0., 1, 0, 1],
+        [0., 0, 1, 0],
+        [0., 0, 0, 1]
+    ])
+
+    kf.H = np.array([
+        [1., 0., 0., 0.],
+        [0., 1., 0., 0.]]
+    )
+
+    kf.P[:2, :2] *= 20
+    kf.P[2:, 2:] *= 300
+    kf.R = kf.R * 20
+
+    Q_std = 5
+    q = Q_discrete_white_noise(dim=2, dt=1, var=Q_std**2)
+    kf.Q[0,0] = q[0,0]
+    kf.Q[1,1] = q[0,0]
+    kf.Q[2,2] = q[1,1]
+    kf.Q[3,3] = q[1,1]
+    kf.Q[0,2] = q[0,1]
+    kf.Q[2,0] = q[0,1]
+    kf.Q[1,3] = q[0,1]
+    kf.Q[3,1] = q[0,1]
+
+    return kf
+
+class Dummy_Filament:
+    """
+    This dummy filament is used for Kalman filter and cm distance function
+    Can't use this Kalman filter with not cm distance functions
+    """
+    def __init__(self, c_x, c_y):
+        self.cm = np.array([c_x, c_y])
 
 class Path:
-    def __init__(self, first_frame_num, filament):
+    def __init__(self, first_frame_num, filament : Filament, prediction_type='trivial'):
+        """
+        prediction type can be trivial: return last elem
+        or using kalman filter
+        """
         self.filament_path = [filament]
+        self.mean_length = filament.length
+
         self.first_frame_num = first_frame_num
         self.is_finished = False
         self.next_center_velocity = np.array([[0, 0]])
+        self.prediction_type = prediction_type
+        self.next_filament = None
+        self.kf = init_kf()
+        self.kf.x[:2] = filament.cm[:, np.newaxis]
+        self.predicted_history = []
 
     @property
     def last_filament(self):
@@ -284,24 +337,34 @@ class Path:
 
     @property
     def next_filament_predicted(self):
-        # if len(self.filament_path) >= 2:
-        #     print(1)
-        return self.filament_path[-1]
+        return self.next_filament
         # new_filament_coords = self.filament_path[-1].coords + self.next_center_velocity
         # return Filament(new_filament_coords.tolist(),
         #                 self.filament_path[-1].number_of_tips)
 
     def predict_next_state(self):
+        if self.prediction_type == 'trivial':
+            self.next_filament = self.filament_path[-1]
+        else:
+            self.kf.predict()
+            self.predicted_history.append(self.kf.x)
+            if len(self.predicted_history) > 5:
+                self.next_filament = Dummy_Filament(self.kf.x[0, 0], self.kf.x[1, 0])
+            else:
+                self.next_filament = self.filament_path[-1]
+
         # if len(self.filament_path) < 2:
         #     self.next_center_velocity = np.array([[0, 0]])
         #     return
         # prev_center = self.filament_path[-2].cm
         # curr_center = self.filament_path[-1].cm
         # self.next_center_velocity = curr_center - prev_center
-        pass
 
     def add(self, filament):
         self.filament_path.append(filament)
+        self.kf.update(filament.cm)
+        # TODO: fix mean calc, make more fast
+        self.mean_length = sum([fil.length for fil in self.filament_path]) / len(self.filament_path)
 
 
 def get_biggest_chunk_array(fil):
@@ -494,7 +557,7 @@ def add_filament_v1(path, found_filament):
     After that, use only overlap score
     """
     ##### GET OVERLAP
-    prev_filament = path.next_filament_predicted
+    prev_filament = path.filament_path[-1]
     if Filament.overlap_score_fast(prev_filament, found_filament) < 0:
         found_filament = Filament(found_filament.coords[::-1],
                                   number_of_tips=found_filament.number_of_tips)
@@ -900,9 +963,9 @@ class Video:
         self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 3]
         print(len(self.tracks.paths))
 
-    def create_links_nn_la(self, distance_type='cm'):
+    def create_links_nn_la(self, distance_type='cm', prediction_type='trivial'):
         """
-        witout Kalman Filter we will try to estimate
+        with or withput Kalman Filter we will try to estimate
         next element with linear assignment problem!
         :return:
         """
@@ -910,7 +973,7 @@ class Video:
         for frame_num, frame in enumerate(self.frames):
             # frame.filaments = [el for el in frame.filaments if el.number_of_tips() == 2]
             if frame_num == 0:
-                self.tracks = Tracks(frame)  # initialize all paths with filaments from first frame
+                self.tracks = Tracks(frame, prediction_type)  # initialize all paths with filaments from first frame
                 continue
             # get all previous links!
             dist_matrix = []
@@ -925,6 +988,8 @@ class Video:
                 path_ind_notfinished += 1
                 distance_to_fils = [distance(path.next_filament_predicted, filament) for filament in
                                     frame.filaments]
+                # for filament in frame.filaments:
+                #     print(distance(path.next_filament_predicted, filament), path.next_filament_predicted.cm, filament.cm)
                 dist_matrix.append(distance_to_fils)
 
             dist_matrix = np.array(dist_matrix)
@@ -937,7 +1002,7 @@ class Video:
                 # r_i -- for cost_matrix
                 a_r_i = pidnf2pid[r_i]
                 path_to_continue = self.tracks.paths[a_r_i]
-                if dist_matrix[r_i, c_i] > path_to_continue.last_filament.length // 2:
+                if dist_matrix[r_i, c_i] > path_to_continue.mean_length:
                     path_to_continue.is_finished = True
                 else:
                     filament_to_continue_path = frame.filaments[c_i]
@@ -945,8 +1010,8 @@ class Video:
                     used_filaments[c_i] += 1
 
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
-            self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num]) for fil_num in
-                                  new_filaments]
+            self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num],
+                                       prediction_type=prediction_type) for fil_num in new_filaments]
 
         print(len(self.tracks.paths))
         self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 2]
@@ -969,8 +1034,10 @@ def create_argparse():
                         help='what type of distance to use between filaments')
     parser.add_argument('--mdf_to_save', type=str, default='gnn_cm.mdf',
                         help="name of saved mdf file with tracking results")
-    parser.add_argument('--tracker_type', type=str, default='gnn', choices=['gnn', 'lap'],
+    parser.add_argument('--tracker_type', type=str, default='gnn', choices=['gnn', 'lap', 'kalman_lap'],
                         help="data association method to use")
+    parser.add_argument('--prediction_type', type=str, default='trivial', choices=['trivial', 'kalman'],
+                        help="predict next filament cm with kalman filter or not")
     return parser
 
 
@@ -989,7 +1056,7 @@ def main(args):
     if args.tracker_type == 'gnn':
         vid.create_links_gnn(distance_type=args.dist_type)
     elif args.tracker_type == 'lap':
-        vid.create_links_nn_la(distance_type=args.dist_type)
+        vid.create_links_nn_la(distance_type=args.dist_type, prediction_type=args.prediction_type)
     else:
         print('Something is wrong. Not known tracker type')
         return
