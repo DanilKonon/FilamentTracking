@@ -971,6 +971,8 @@ class Video:
         """
         distance = choose_distance(distance_type)
         for frame_num, frame in enumerate(self.frames):
+            if frame_num == 13:
+                print(frame_num)
             # frame.filaments = [el for el in frame.filaments if el.number_of_tips() == 2]
             if frame_num == 0:
                 self.tracks = Tracks(frame, prediction_type)  # initialize all paths with filaments from first frame
@@ -995,6 +997,7 @@ class Video:
             dist_matrix = np.array(dist_matrix)
             # row_ind -- filaments from prev frames
             # col_ind -- filaments from frames
+            dist_matrix[dist_matrix > 100] = 100
             row_ind, col_ind = linear_sum_assignment(dist_matrix)
             used_filaments = [0 for _ in frame.filaments]
             for r_i, c_i in zip(row_ind, col_ind):
