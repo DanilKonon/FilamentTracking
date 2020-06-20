@@ -271,7 +271,7 @@ def init_kf():
     kf.P[2:, 2:] *= 300
     kf.R = kf.R * 20
 
-    Q_std = 5
+    Q_std = 5.0
     q = Q_discrete_white_noise(dim=2, dt=1, var=Q_std**2)
     kf.Q[0,0] = q[0,0]
     kf.Q[1,1] = q[0,0]
@@ -306,6 +306,7 @@ class Path:
         self.next_center_velocity = np.array([[0, 0]])
         self.prediction_type = prediction_type
         self.next_filament = None
+
         self.kf = init_kf()
         self.kf.x[:2] = filament.cm[:, np.newaxis]
         self.predicted_history = []
@@ -347,22 +348,31 @@ class Path:
             self.next_filament = self.filament_path[-1]
         else:
             self.kf.predict()
-            self.predicted_history.append(self.kf.x)
+            self.predicted_history.append([self.kf.x, self.kf.P])
             if len(self.predicted_history) > 5:
                 self.next_filament = Dummy_Filament(self.kf.x[0, 0], self.kf.x[1, 0])
             else:
                 self.next_filament = self.filament_path[-1]
 
-        # if len(self.filament_path) < 2:
-        #     self.next_center_velocity = np.array([[0, 0]])
-        #     return
-        # prev_center = self.filament_path[-2].cm
-        # curr_center = self.filament_path[-1].cm
-        # self.next_center_velocity = curr_center - prev_center
+    def check_gate(self):
+        """
+        if using Kalman filter, check gate must be called after prediction step was made
+        """
+        if True or self.prediction_type == 'trivial' or len(self.filament_path) <= 5:
+            xmin, xmax = self.filament_path[-1].cm[0] - self.mean_length, \
+                         self.filament_path[-1].cm[0] + self.mean_length
+            ymin, ymax = self.filament_path[-1].cm[1] - self.mean_length,\
+                         self.filament_path[-1].cm[1] + self.mean_length
+        else:
+            x, y, v_x, v_y = self.kf.x.flatten()
+            xmin, xmax = x - 3 * v_x, x + 3 * v_x
+            ymin, ymax = y - 3 * v_y, y + 3 * v_y
+
+        return xmin, xmax, ymin, ymax
 
     def add(self, filament):
         self.filament_path.append(filament)
-        self.kf.update(filament.cm)
+        self.kf.update(np.reshape(filament.cm, [2, 1]))
         # TODO: fix mean calc, make more fast
         self.mean_length = sum([fil.length for fil in self.filament_path]) / len(self.filament_path)
 
@@ -988,16 +998,30 @@ class Video:
                 path.predict_next_state()
                 pidnf2pid[path_ind_notfinished] = path_ind
                 path_ind_notfinished += 1
-                distance_to_fils = [distance(path.next_filament_predicted, filament) for filament in
-                                    frame.filaments]
-                # for filament in frame.filaments:
-                #     print(distance(path.next_filament_predicted, filament), path.next_filament_predicted.cm, filament.cm)
+
+                distance_to_fils = [0 for _ in frame.filaments]
+                for fil_ind, f_filament in enumerate(frame.filaments):
+                    max_length = max(f_filament.length, path.mean_length)
+                    min_length = min(f_filament.length, path.mean_length)
+                    if max_length / min_length > 2.5:
+                        distance_to_fils[fil_ind] = 10_000
+                        continue
+
+                    # xmin, xmax, ymin, ymax = path.check_gate()
+                    # if not (xmin <= f_filament.center_x <= xmax and ymin <= f_filament.center_y <= ymax):
+                    #     distance_to_fils[fil_ind] = 10_000
+                    #     continue
+
+                    distance_to_fils[fil_ind] = distance(path.next_filament_predicted, f_filament)
+                    if distance_to_fils[fil_ind] > 100:
+                        distance_to_fils[fil_ind] = 10_000
+
                 dist_matrix.append(distance_to_fils)
 
             dist_matrix = np.array(dist_matrix)
             # row_ind -- filaments from prev frames
             # col_ind -- filaments from frames
-            dist_matrix[dist_matrix > 100] = 100
+
             row_ind, col_ind = linear_sum_assignment(dist_matrix)
             used_filaments = [0 for _ in frame.filaments]
             for r_i, c_i in zip(row_ind, col_ind):
