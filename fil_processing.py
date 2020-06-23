@@ -497,6 +497,17 @@ def motion_gate(path: Path, distance_to_fils):
         prev_pos = fil.cm
 
     found_displacement = np.mean(np.sqrt(np.sum(np.array(movement_history) ** 2, axis=1)))
+
+    # displacements_filaments = np.sqrt(np.sum(np.array(movement_history) ** 2, axis=1))
+    #
+    # den_mean = 0
+    # weighted_mean = 0
+    # for ind_mean, pfl in enumerate(displacements_filaments):
+    #     den_mean += ind_mean + 1
+    #     weighted_mean += (ind_mean + 1) * pfl
+    # weighted_mean = weighted_mean / den_mean
+    # found_displacement = weighted_mean
+
     return constant_gate(path, distance_to_fils, constant=3 * found_displacement)
 
 
@@ -984,12 +995,26 @@ class Video:
                     closest_filament = min(range(len(distance_to_fils)), key=lambda i: distance_to_fils[i])
                     found_filament = frame.filaments[closest_filament]
                     path_fils_length = [fil.length for fil in path.filament_path]
+
                     mean_path_len = sum(path_fils_length) / len(path_fils_length)
+
+                    den_mean = 0
+                    weighted_mean = 0
+                    for ind_mean, pfl in enumerate(path_fils_length):
+                        den_mean += ind_mean + 1
+                        weighted_mean += (ind_mean + 1) * pfl
+                    weighted_mean = weighted_mean / den_mean
+                    mean_path_len = weighted_mean
+
                     max_length = max(found_filament.length, mean_path_len)
                     min_length = min(found_filament.length, mean_path_len)
 
+                    # This gives better performance than previous method with mean ??? check
+                    # max_length = max(found_filament.length, path.next_filament_predicted.length)
+                    # min_length = min(found_filament.length, path.next_filament_predicted.length)
+
                     # TODO: fix this random constant
-                    if max_length > 25 and max_length / min_length > 1.5:
+                    if max_length > 20 and max_length / min_length > 1.5:
                         ### bad filament
                         distance_to_fils[closest_filament] = 10_000  # very big number
                         print(frame_num, closest_filament, max_length, min_length)
