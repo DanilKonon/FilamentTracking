@@ -476,15 +476,31 @@ def choose_gate_func(type_):
         return motion_dense_gate
 
 
-def constant_gate(path, distance_to_fils, constant=39):
-    return min(distance_to_fils) > constant
+def constant_gate(path: Path, distance_to_fils, constant=39):
+    new_distance_to_fils = []
+    for dist in distance_to_fils:
+        if dist > constant:
+            dist = 10_000
+        new_distance_to_fils.append(dist)
+    return new_distance_to_fils
 
 
-def motion_gate(path, distance_to_fils):
-    pass
+def motion_gate(path: Path, distance_to_fils):
+    if len(path.filament_path) < 4:
+        return constant_gate(path, distance_to_fils)
+
+    # TODO: optimize calculations, maybe add more weight to last measurements
+    movement_history = []
+    prev_pos = path.filament_path[0].cm
+    for fil in path.filament_path[1:]:
+        movement_history.append(prev_pos - fil.cm)
+        prev_pos = fil.cm
+
+    found_displacement = np.mean(np.sqrt(np.sum(np.array(movement_history) ** 2, axis=1)))
+    return constant_gate(path, distance_to_fils, constant=3 * found_displacement)
 
 
-def motion_dense_gate(path, distance_to_fils):
+def motion_dense_gate(path: Path, distance_to_fils):
     pass
 
 # from fire import Cluster
@@ -954,7 +970,13 @@ class Video:
                 is_path_finished = False
 
                 while not_found:
-                    if not distance_to_fils or gate_func(path, distance_to_fils):  # when to stop tracking!
+                    if not distance_to_fils:  # when to stop tracking!
+                        is_path_finished = True
+                        not_found = False
+                        break
+
+                    distance_to_fils = gate_func(path, distance_to_fils)
+                    if min(distance_to_fils) == 10_000:
                         is_path_finished = True
                         not_found = False
                         break
