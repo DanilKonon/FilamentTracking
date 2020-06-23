@@ -441,6 +441,13 @@ def choose_process_func(processing_frame: str):
         raise NotImplementedError
 
 
+def choose_add_fil_func(use_overlap_score):
+    if use_overlap_score:
+        return add_filament_v1
+    else:
+        return add_filament_v2
+
+
 class Frame:
     def __init__(self, img, frame_num, processing_frame):
         """
@@ -952,9 +959,11 @@ class Video:
                          gate_type='constant',
                          path_filament_len_type='last',
                          process_length_small_filaments_type='simple', len_small_filaments=20,
-                         ratio_big_filaments=1.5, ratio_small_filaments=3.5):
+                         ratio_big_filaments=1.5, ratio_small_filaments=3.5,
+                         add_filaments_fast=True):
         distance = choose_distance(distance_type)
         gate_func = choose_gate_func(gate_type)
+        add_filament = choose_add_fil_func(add_filaments_fast)
 
         for frame_num, frame in enumerate(self.frames):
             frame.filaments = [filament for filament in frame.filaments if filament.length >= 3]
@@ -991,7 +1000,7 @@ class Video:
                     path_fils_length = [fil.length for fil in path.filament_path]
 
                     if path_filament_len_type == 'last':
-                        filament_len = path.filament_path[-1].length
+                        filament_len = path_fils_length[-1]
                     elif path_filament_len_type == 'mean':
                         filament_len = sum(path_fils_length) / len(path_fils_length)
                     elif path_filament_len_type == 'weighted_mean':
@@ -1044,15 +1053,15 @@ class Video:
                     continue
 
                 if not not_found:
-                    add_filament_v1(path, found_filament)
+                    add_filament(path, found_filament)
 
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
             self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num]) for fil_num in
                                   new_filaments]
 
-        print(len(self.tracks.paths))
+        number_of_tracks_before = len(self.tracks.paths)
         self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 3]
-        print(len(self.tracks.paths))
+        print(number_of_tracks_before, len(self.tracks.paths))
 
     def create_links_nn_la(self, distance_type='cm', prediction_type='trivial'):
         """
@@ -1148,6 +1157,15 @@ def create_argparse():
                         help="predict next filament cm with kalman filter or not")
     parser.add_argument('--gate_type', type=str, default='constant', choices=['constant', 'motion', 'motion_dense'],
                         help="what type of gate to use for gnn method")
+    parser.add_argument('--path_filament_len_type', type=str, default='last', choices=['last', 'mean'],
+                        help="how to find len of filament in path")
+    parser.add_argument('--process_length_small_filaments_type', type=str, default='simple',
+                        choices=['simple', 'process', 'no_process'], help="process_small_filaments or not")
+    parser.add_argument('--len_small_filaments', type=int, default=20, help="what filament is considered small")
+    parser.add_argument('--ratio_big_filaments', type=float, default=1.5, help="ratio of lens for big fils")
+    parser.add_argument('--ratio_small_filaments', type=float, default=3.5, help="ratio of lens for small fils")
+    parser.add_argument('--add_filaments_fast', type=bool, default=True,
+                        help="add new fils to track with fast overlap score or always using our method")
     return parser
 
 
@@ -1164,7 +1182,16 @@ def main(args):
         vid.work_with_fire()
 
     if args.tracker_type == 'gnn':
-        vid.create_links_gnn(distance_type=args.dist_type, gate_type=args.gate_type)
+        vid.create_links_gnn(
+            distance_type=args.dist_type,
+            gate_type=args.gate_type,
+            path_filament_len_type=args.path_filament_len_type,
+            process_length_small_filaments_type=args.process_length_small_filaments_type,
+            len_small_filaments=args.len_small_filaments,
+            ratio_big_filaments=args.ratio_big_filaments,
+            ratio_small_filaments=args.ratio_small_filaments,
+            add_filaments_fast=args.add_filaments_fast
+        )
     elif args.tracker_type == 'lap':
         vid.create_links_nn_la(distance_type=args.dist_type, prediction_type=args.prediction_type)
     else:
