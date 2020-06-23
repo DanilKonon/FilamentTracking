@@ -467,6 +467,26 @@ def choose_distance(type_):
         return Filament.fils_distance_fast
 
 
+def choose_gate_func(type_):
+    if type_ == 'constant':
+        return constant_gate
+    elif type_ == 'motion':
+        return motion_gate
+    elif type_ == 'motion_dense':
+        return motion_dense_gate
+
+
+def constant_gate(path, distance_to_fils, constant=39):
+    return min(distance_to_fils) > constant
+
+
+def motion_gate(path, distance_to_fils):
+    pass
+
+
+def motion_dense_gate(path, distance_to_fils):
+    pass
+
 # from fire import Cluster
 # from typing import List
 from collections import defaultdict, namedtuple
@@ -901,8 +921,9 @@ class Video:
             fire_tracks = process_fire_cluster(self, fire_clusters, ind * FIRE_NUM)
             fire_tracks_list.append(fire_tracks)
 
-    def create_links_gnn(self, distance_type='cm'):
+    def create_links_gnn(self, distance_type='cm', gate_type='constant'):
         distance = choose_distance(distance_type)
+        gate_func = choose_gate_func(gate_type)
         for frame_num, frame in enumerate(self.frames):
             frame.filaments = [filament for filament in frame.filaments if filament.length >= 3]
         for frame_num, frame in enumerate(self.frames):
@@ -933,7 +954,7 @@ class Video:
                 is_path_finished = False
 
                 while not_found:
-                    if not distance_to_fils or min(distance_to_fils) > 39:  # when to stop tracking!
+                    if not distance_to_fils or gate_func(path, distance_to_fils):  # when to stop tracking!
                         is_path_finished = True
                         not_found = False
                         break
@@ -1065,6 +1086,8 @@ def create_argparse():
                         help="data association method to use")
     parser.add_argument('--prediction_type', type=str, default='trivial', choices=['trivial', 'kalman'],
                         help="predict next filament cm with kalman filter or not")
+    parser.add_argument('--gate_type', type=str, default='constant', choices=['constant', 'motion', 'motion_dense'],
+                        help="what type of gate to use for gnn method")
     return parser
 
 
@@ -1081,7 +1104,7 @@ def main(args):
         vid.work_with_fire()
 
     if args.tracker_type == 'gnn':
-        vid.create_links_gnn(distance_type=args.dist_type)
+        vid.create_links_gnn(distance_type=args.dist_type, gate_type=args.gate_type)
     elif args.tracker_type == 'lap':
         vid.create_links_nn_la(distance_type=args.dist_type, prediction_type=args.prediction_type)
     else:
