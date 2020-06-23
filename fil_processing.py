@@ -12,7 +12,7 @@ from math import fabs
 from numba import jit
 
 FIRE_NUM = 5
-
+INF_DISTANCE = 10_000
 
 def find_tip_in_filament(im, i, j, was_here, padding):
     was_here[i][j] = 255
@@ -480,7 +480,7 @@ def constant_gate(path: Path, distance_to_fils, constant=39):
     new_distance_to_fils = []
     for dist in distance_to_fils:
         if dist > constant:
-            dist = 10_000
+            dist = INF_DISTANCE
         new_distance_to_fils.append(dist)
     return new_distance_to_fils
 
@@ -508,7 +508,7 @@ def motion_gate(path: Path, distance_to_fils):
     # weighted_mean = weighted_mean / den_mean
     # found_displacement = weighted_mean
 
-    return constant_gate(path, distance_to_fils, constant=3 * found_displacement)
+    return constant_gate(path, distance_to_fils, constant=3*found_displacement)
 
 
 def motion_dense_gate(path: Path, distance_to_fils):
@@ -948,82 +948,94 @@ class Video:
             fire_tracks = process_fire_cluster(self, fire_clusters, ind * FIRE_NUM)
             fire_tracks_list.append(fire_tracks)
 
-    def create_links_gnn(self, distance_type='cm', gate_type='constant'):
+    def create_links_gnn(self, distance_type='cm',
+                         gate_type='constant',
+                         path_filament_len_type='last',
+                         process_length_small_filaments_type='simple', len_small_filaments=20,
+                         ratio_big_filaments=1.5, ratio_small_filaments=3.5):
         distance = choose_distance(distance_type)
         gate_func = choose_gate_func(gate_type)
+
         for frame_num, frame in enumerate(self.frames):
             frame.filaments = [filament for filament in frame.filaments if filament.length >= 3]
+
         for frame_num, frame in enumerate(self.frames):
-            print(frame_num)
-            if frame_num == 17:
-                print(5)
-            if frame_num == 12:
-                print(3)
-            print(len(frame.filaments))
-            # frame.filaments = [el for el in frame.filaments if el.number_of_tips == 2]
             if frame_num == 0:
                 self.tracks = Tracks(frame)  # initialize all paths with filaments from first frame
                 continue
             # get all previous links!
             used_filaments = [0 for _ in frame.filaments]
             for path_num, path in enumerate(self.tracks.paths):
-                if path_num + 1 == 5:
-                    print(5)
-                if np.abs(path.filament_path[-1].center_x - 358) < 10 and np.abs(
-                        path.filament_path[-1].center_y - 236) < 10:
-                    print('ha')
                 if path.is_finished:
                     continue
                 path.predict_next_state()
                 distance_to_fils = [distance(path.next_filament_predicted, filament) for filament in frame.filaments]
 
+                if distance_to_fils:
+                    distance_to_fils = gate_func(path, distance_to_fils)
+
+                if not distance_to_fils or min(distance_to_fils) == INF_DISTANCE:
+                    path.is_finished = True
+                    continue
+
                 not_found = True
                 is_path_finished = False
-
                 while not_found:
-                    if not distance_to_fils:  # when to stop tracking!
-                        is_path_finished = True
-                        not_found = False
-                        break
-
-                    distance_to_fils = gate_func(path, distance_to_fils)
-                    if min(distance_to_fils) == 10_000:
-                        is_path_finished = True
-                        not_found = False
-                        break
-
                     closest_filament = min(range(len(distance_to_fils)), key=lambda i: distance_to_fils[i])
+                    if distance_to_fils[closest_filament] == INF_DISTANCE:
+                        # if there are no filaments left
+                        is_path_finished = True
+                        break
+
                     found_filament = frame.filaments[closest_filament]
                     path_fils_length = [fil.length for fil in path.filament_path]
 
-                    mean_path_len = sum(path_fils_length) / len(path_fils_length)
+                    if path_filament_len_type == 'last':
+                        filament_len = path.filament_path[-1].length
+                    elif path_filament_len_type == 'mean':
+                        filament_len = sum(path_fils_length) / len(path_fils_length)
+                    elif path_filament_len_type == 'weighted_mean':
+                        # den_mean = 0
+                        # weighted_mean = 0
+                        # for ind_mean, pfl in enumerate(path_fils_length):
+                        #     den_mean += ind_mean + 1
+                        #     weighted_mean += (ind_mean + 1) * pfl
+                        # weighted_mean = weighted_mean / den_mean
+                        # mean_path_len = weighted_mean
+                        raise NotImplementedError
+                    else:
+                        raise NotImplementedError
 
-                    den_mean = 0
-                    weighted_mean = 0
-                    for ind_mean, pfl in enumerate(path_fils_length):
-                        den_mean += ind_mean + 1
-                        weighted_mean += (ind_mean + 1) * pfl
-                    weighted_mean = weighted_mean / den_mean
-                    mean_path_len = weighted_mean
-
-                    max_length = max(found_filament.length, mean_path_len)
-                    min_length = min(found_filament.length, mean_path_len)
-
-                    # This gives better performance than previous method with mean ??? check
-                    # max_length = max(found_filament.length, path.next_filament_predicted.length)
-                    # min_length = min(found_filament.length, path.next_filament_predicted.length)
+                    max_length = max(found_filament.length, filament_len)
+                    min_length = min(found_filament.length, filament_len)
 
                     # TODO: fix this random constant
-                    if max_length > 20 and max_length / min_length > 1.5:
-                        ### bad filament
-                        distance_to_fils[closest_filament] = 10_000  # very big number
-                        print(frame_num, closest_filament, max_length, min_length)
-                        continue
+                    if process_length_small_filaments_type == 'simple':
+                        if max_length / min_length > ratio_big_filaments:
+                            ### bad filament
+                            distance_to_fils[closest_filament] = INF_DISTANCE
+                            continue
+                    elif process_length_small_filaments_type == 'no_processing':
+                        if max_length > len_small_filaments and max_length / min_length > ratio_big_filaments:
+                            ### bad filament
+                            distance_to_fils[closest_filament] = INF_DISTANCE
+                            continue
+                    elif process_length_small_filaments_type == 'processing':
+                        if max_length > len_small_filaments and max_length / min_length > ratio_big_filaments:
+                            ### bad filament
+                            distance_to_fils[closest_filament] = INF_DISTANCE
+                            continue
+                        if max_length < len_small_filaments and max_length / min_length > ratio_small_filaments:
+                            ### bad filament
+                            distance_to_fils[closest_filament] = INF_DISTANCE
+                            continue
+                    else:
+                        raise NotImplementedError
 
                     used_filaments[closest_filament] += 1
                     if used_filaments[closest_filament] != 1:
                         # already was here, bad filament
-                        distance_to_fils[closest_filament] = 10_000
+                        distance_to_fils[closest_filament] = INF_DISTANCE
                     else:
                         not_found = False
 
@@ -1031,7 +1043,8 @@ class Video:
                     path.is_finished = is_path_finished
                     continue
 
-                add_filament_v1(path, found_filament)
+                if not not_found:
+                    add_filament_v1(path, found_filament)
 
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
             self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num]) for fil_num in
@@ -1072,17 +1085,17 @@ class Video:
                     max_length = max(f_filament.length, path.mean_length)
                     min_length = min(f_filament.length, path.mean_length)
                     if max_length / min_length > 2.5:
-                        distance_to_fils[fil_ind] = 10_000
+                        distance_to_fils[fil_ind] = INF_DISTANCE
                         continue
 
                     # xmin, xmax, ymin, ymax = path.check_gate()
                     # if not (xmin <= f_filament.center_x <= xmax and ymin <= f_filament.center_y <= ymax):
-                    #     distance_to_fils[fil_ind] = 10_000
+                    #     distance_to_fils[fil_ind] = INF_DISTANCE
                     #     continue
 
                     distance_to_fils[fil_ind] = distance(path.next_filament_predicted, f_filament)
                     if distance_to_fils[fil_ind] > 100:
-                        distance_to_fils[fil_ind] = 10_000
+                        distance_to_fils[fil_ind] = INF_DISTANCE
 
                 dist_matrix.append(distance_to_fils)
 
