@@ -344,11 +344,12 @@ class Path:
         #                 self.filament_path[-1].number_of_tips)
 
     def predict_next_state(self):
+        self.kf.predict()
+        self.predicted_history.append([self.kf.x, self.kf.P])
+
         if self.prediction_type == 'trivial':
             self.next_filament = self.filament_path[-1]
         else:
-            self.kf.predict()
-            self.predicted_history.append([self.kf.x, self.kf.P])
             if len(self.predicted_history) > 5:
                 self.next_filament = Dummy_Filament(self.kf.x[0, 0], self.kf.x[1, 0])
             else:
@@ -479,6 +480,8 @@ def choose_gate_func(type_):
         return constant_gate
     elif type_ == 'motion':
         return motion_gate
+    elif type_ == 'motion_kalman':
+        return motion_kalman
     elif type_ == 'motion_dense':
         return motion_dense_gate
 
@@ -516,6 +519,16 @@ def motion_gate(path: Path, distance_to_fils):
     # found_displacement = weighted_mean
 
     return constant_gate(path, distance_to_fils, constant=3*found_displacement)
+
+
+def motion_kalman(path: Path, distance_to_fils, num_of_sigmas=5):
+    if len(path.filament_path) < 4:
+        return constant_gate(path, distance_to_fils)
+
+    found_displacement = np.sqrt(np.sum(path.kf.x[2:, 0] ** 2))
+    sigma2_x, sigma2_y = path.kf.P[2, 2], path.kf.P[3, 3]
+    sigma = np.sqrt(sigma2_x + sigma2_y)
+    return constant_gate(path, distance_to_fils, constant=found_displacement + num_of_sigmas * sigma)
 
 
 def motion_dense_gate(path: Path, distance_to_fils):
@@ -1155,7 +1168,8 @@ def create_argparse():
                         help="data association method to use")
     parser.add_argument('--prediction_type', type=str, default='trivial', choices=['trivial', 'kalman'],
                         help="predict next filament cm with kalman filter or not")
-    parser.add_argument('--gate_type', type=str, default='constant', choices=['constant', 'motion', 'motion_dense'],
+    parser.add_argument('--gate_type', type=str, default='constant',
+                        choices=['constant', 'motion', 'motion_kalman', 'motion_dense'],
                         help="what type of gate to use for gnn method")
     parser.add_argument('--path_filament_len_type', type=str, default='last', choices=['last', 'mean'],
                         help="how to find len of filament in path")
