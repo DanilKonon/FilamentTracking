@@ -1160,7 +1160,7 @@ def create_argparse():
     parser.add_argument('--path_filament_len_type', type=str, default='last', choices=['last', 'mean'],
                         help="how to find len of filament in path")
     parser.add_argument('--process_length_small_filaments_type', type=str, default='simple',
-                        choices=['simple', 'process', 'no_process'], help="process_small_filaments or not")
+                        choices=['simple', 'processing', 'no_processing'], help="process_small_filaments or not")
     parser.add_argument('--len_small_filaments', type=int, default=20, help="what filament is considered small")
     parser.add_argument('--ratio_big_filaments', type=float, default=1.5, help="ratio of lens for big fils")
     parser.add_argument('--ratio_small_filaments', type=float, default=3.5, help="ratio of lens for small fils")
@@ -1198,6 +1198,11 @@ def main(args):
         print('Something is wrong. Not known tracker type')
         return
     vid.tracks._save_data_to_mtrackj_format_new(path_to_results / args.mdf_to_save)
+
+    pathlib.Path('./results_folders').mkdir(exist_ok=True)
+    path_to_folder_results = pathlib.Path('./results_folders') / args.mdf_to_save
+    path_to_folder_results.mkdir(exist_ok=True)
+    vid.tracks._save_data_to_mtrackj_format_new(path_to_folder_results / path_to_file.with_suffix('.mdf').name)
     # vid.visualize_by_frames('./visualized_pickle.tif')
     # vid.visualize_by_frames(str(path_to_results / './what_filament_left_fire_2.tif'))
     # for frame in vid.frames:
