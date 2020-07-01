@@ -419,9 +419,11 @@ class TiffVideo:
         self.fire_frames = []
         num_of_fire_frames = self.t.shape[0] // self.period_fire_frames
         for i in range(num_of_fire_frames):
+            # if i == 5:
+            #     print(i)
             pict = self.t[i * self.period_fire_frames:(i + 1) * self.period_fire_frames, :, :]
             processed_pict = process_pict_for_fire(pict)
-            # processed_pict = processed_pict[170:323, 329:450]
+            # processed_pict = processed_pict[300:500, 120:350]
             clusters = get_clusters_from_image(processed_pict)
             self.fire_frames.append(clusters)
 
