@@ -481,6 +481,7 @@ class TiffVideo:
                 for _, filament in enumerate(frame.filaments):
                     img[frame_num][filament.xs, filament.ys, 1:3] = 255
                     img[frame_num][filament.center_x, filament.center_y, 0] = 255
+            # tifffile.imsave(str(self.result_file), data=images.astype('uint8'))
 
         for ind, lighted_image in enumerate(self.results):
             if mode == '1':

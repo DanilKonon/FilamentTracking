@@ -230,18 +230,25 @@ class Filament:
                                                  short_len, fil_direction=fil_direction)
 
     @staticmethod
-    def draw_filaments(filaments, img=None, to_draw=True):
+    def draw_filaments(filaments, img=None, to_draw=True, path_to_save=None):
+        plt.figure(figsize=(5, 5), dpi=100)
         if not isinstance(filaments, list):
             filaments = [filaments]
         if img is None:
             img = np.zeros(shape=(512, 512, 3))
-        for filament in filaments:
-            g_color = np.random.randint(1, 256)
-            b_color = np.random.randint(1, 256)
+        len_fils = len(filaments)
+        for ind, filament in enumerate(filaments):
+            # g_color = np.random.randint(1, 256)
+            # b_color = np.random.randint(1, 256)
+            g_color = 256 / len_fils * (ind + 1)
+            b_color = 256 - 256 / len_fils * (ind + 1)
             img[filament.xs, filament.ys, 1] = g_color
             img[filament.xs, filament.ys, 2] = b_color
             print(g_color, b_color)
             img[filament.center_x, filament.center_y, 0] = 255
+
+        if path_to_save is not None:
+            plt.imsave(path_to_save, img / img.max())
 
         if to_draw:
             plt.imshow(img, interpolation='bicubic')
@@ -521,6 +528,7 @@ def motion_gate(path: Path, distance_to_fils):
     return constant_gate(path, distance_to_fils, constant=3*found_displacement)
 
 
+# Add variations to this parameter
 def motion_kalman(path: Path, distance_to_fils, num_of_sigmas=5):
     if len(path.filament_path) < 4:
         return constant_gate(path, distance_to_fils)
@@ -968,6 +976,7 @@ class Video:
             fire_tracks = process_fire_cluster(self, fire_clusters, ind * FIRE_NUM)
             fire_tracks_list.append(fire_tracks)
 
+
     def create_links_gnn(self, distance_type='cm',
                          gate_type='constant',
                          path_filament_len_type='last',
@@ -1190,10 +1199,20 @@ def main(args):
 
     vid = load_vid(path_to_results)
 
-    # for frame in vid.frames:
-    #     Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]))
+    # for ind, frame in enumerate(vid.frames):
+    #     if ind >= 10 and ind <= 15:
+    #         Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]),
+    #                                 path_to_save=f'/Users/danilkononykhin/Desktop/{ind}.png')
+
     if args.use_fire:
         vid.work_with_fire()
+
+    # for ind, frame in enumerate(vid.frames):
+    #     if ind >= 10 and ind <= 15:
+    #         Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]),
+    #                                 path_to_save=f'/Users/danilkononykhin/Desktop/{ind}_fire.png')
+
+
 
     if args.tracker_type == 'gnn':
         vid.create_links_gnn(
