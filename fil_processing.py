@@ -694,6 +694,26 @@ def reconstruct_filament(prev_filament: Filament, future_filament: Filament,
 
             # print(grown_length_left)
             length_of_new_filament += grown_length_left
+    elif prev_filament is None:
+        left_point = 0
+        length_of_new_filament = 0
+        coords_for_new_filament = [points_to_construct_filament[0]]
+        filled_branch_left = False
+        while length_of_new_filament < mean_filament_length and not filled_branch_left:
+            grown_length_left = 0
+            if left_point < len(points_to_construct_filament) - 1:
+                left_point = left_point + 1
+                coords_for_new_filament.append(points_to_construct_filament[left_point])
+                grown_length_left = np.sqrt(((coords_for_new_filament[-1] -
+                                              coords_for_new_filament[-2]) ** 2).sum())
+                if grown_length_left == 0:
+                    # TODO: fix!
+                    continue
+            else:
+                filled_branch_left = True
+
+            # print(grown_length_left)
+            length_of_new_filament += grown_length_left
     else:
         new_filament_cm = (prev_filament.cm + future_filament.cm) / 2
 
@@ -837,173 +857,175 @@ class Video:
 
             #if to_display:
             # visualize_branches((512, 512), all_branches)
-
-            ### TODO: change min_dist to some universal const
-            for frame in list(video.frames)[
-                         frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frame
-                frame_num = frame.num
-                assign_fire_track_for_each_filament(frame, fire_tracks, frame_num)
-
-            # process one specific case!
-            all_merged_fils = []
-            frame2new_fils = defaultdict(list)
-            for ft_num, ft in enumerate(fire_tracks):
-                ### Filter too short tracks
-                ### TODO: make constant!
-                frame_num2number_of_fils = {k: len(v) for k, v in ft.frames_filaments.items()}
-
-                print(ft, ft_num)
-                print(frame_num2number_of_fils)
-
-                def merge_filaments_that_were_broken():
-                    pass
-
-                def split_filaments_that_were_merged():
-                    pass
-
-                empty_frames = [k for k, v in frame_num2number_of_fils.items() if v == 0]
-
-                one_filament_frames = [k for k, v in frame_num2number_of_fils.items() if v == 1]
-                multiple_filaments_frames = [k for k, v in frame_num2number_of_fils.items() if v > 1]
-
-                if len(one_filament_frames) + len(multiple_filaments_frames) < 3:
-                    continue
-
-                sum_length = 0
-                count = 0
-                for k, v in ft.frames_filaments.items():
-                    if len(v) == 1:
-                        sum_length += v[0][1].length
-                        count += 1
-
-                if count == 0:
-                    continue
-
-                mean_filament_length = sum_length / count
-
-                for ind, (k, v) in enumerate(ft.frames_filaments.items()):
-                    if k in multiple_filaments_frames:
-                        print('our case!')
-                        new_length = 0
-                        for dist, fil in v:
-                            new_length += fil.length
-                        # TODO: fix 10, 20 is very strange constant
-                        # TODO: can be several different filaments on one fire track
-                        mean_len = mean_filament_length
-                        if abs(new_length - mean_len) < 20:
-                            print('really our case!')
-                            ### check that filaments are really one
-                            ### not two different filaments on one track
-                            ### how to do that?
-
-                            fils_to_merge = [fil for _, fil in v]
-
-                            ### TODO: fix assume that we have only two fils that need to be merged
-                            # need to connect two filaments the right way
-                            if len(fils_to_merge) != 2:
-                                continue
-
-                            first_filament = fils_to_merge[0]
-                            second_filament = fils_to_merge[1]
-
-                            new_filament = connect_two_filaments(first_filament, second_filament)
-
-                            if new_filament is None:
-                                # TODO: what filament is the right one?
-                                # The one that is more similar wrt to lengths
-                                continue
-
-                            frame2new_fils[k].append(new_filament)
-                            ft.frames_filaments[k] = [[1.0, new_filament]]
-
-                            all_merged_fils.extend(fils_to_merge)
-
-                            all_changed_filaments[k].extend(fils_to_merge)
-
-                            one_filament_frames.append(k)
-
-                            mean_filament_length, count = adjust_mean(mean_filament_length, count, new_filament.length)
-
-
-                print(empty_frames)
-                for k in empty_frames:
-                    ### TODO: to think of something
-                    ### TODO: check that we really can do this
-                    ### TODO: add first filament
-
-                    if k == frame_num_start + FIRE_NUM - 1 and k - 1 in one_filament_frames:
-                        print('it is a last one!')
-                        filaments = ft.frames_filaments[k - 1]
-                        if check_filament_is_on_end_of_trace(filaments[0][1], ft.branch.points):
-                            continue
-                        future_filament = None
-                    elif k == frame_num_start and k + 1 in one_filament_frames:
-                        print('it is a first one')
-                        continue
-                    elif k - 1 in one_filament_frames and k + 1 in one_filament_frames:
-                        ### can interpolate???, try to reconst k
-                        future_filament = ft.frames_filaments[k + 1][0][1]
-                    else:
-                        continue
-
-                    prev_filament = ft.frames_filaments[k - 1][0][1]
-                    new_filament = reconstruct_filament(prev_filament, future_filament, mean_filament_length, ft)
-
-                    ### TODO: dictionary change size during iteration !!!
-                    # ft.frames_filaments[k-1].append([1.0, new_filament])
-                    frame2new_fils[k].append(new_filament)
-                    one_filament_frames.append(k)
-
-                    all_changed_filaments[k].append(new_filament)
-
-                    mean_filament_length, count = adjust_mean(mean_filament_length, count, new_filament.length)
-
-                    distances_to_filaments = [calc_distance_track_filament(filament.coords.tolist(), new_filament) for
-                                              filament in video.frames[k].filaments]
-                    min_dist = min(distances_to_filaments)
-
-                    # TODO: fix random constant
-                    # TODO: what if several min dist!!!
-                    if min_dist < 3:
-                        """
-                        Try to find filament that included this new filament and cut it. 
-                        """
-                        min_ind = distances_to_filaments.index(min_dist)
-                        too_long_filament = video.frames[k].filaments[min_ind]
-                        relation = [
-                            [min([np.sqrt(((coord - coord2) ** 2).sum()) for coord2 in new_filament.coords]), coord] for
-                            coord in too_long_filament.coords]
-                        print(relation)
-                        shorted_coords = [coord for coord in too_long_filament.coords if min(
-                            [np.sqrt(((coord - coord2) ** 2).sum()) for coord2 in new_filament.coords]) > 2]
-                        # TODO: what if it breaks three long branches and as result only one will remain, but must remain two!
-                        print(len(shorted_coords))
-                        shorted_coords = get_biggest_chunk_array_2(shorted_coords)
-                        if shorted_coords is not None:
-                            print(len(shorted_coords))
-                            new_shorted_filament = Filament(shorted_coords)
-                            video.frames[k].filaments[min_ind] = new_shorted_filament
-
-                            all_changed_filaments[k].append(new_shorted_filament)
-
-                    print(distances_to_filaments)
-                    print('empty frame')
-
-                ### change all firetracks from one cluster
-                fire_track_from_one_cluster = [f_track for f_track in fire_tracks if
-                                               f_track.cluster_num == ft.cluster_num]
+            for _ in range(1):
+                ### TODO: change min_dist to some universal const
                 for frame in list(video.frames)[
                              frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frame
                     frame_num = frame.num
-                    frame.filaments = [fil for fil in frame.filaments if fil not in all_merged_fils]
-                    frame.filaments.extend(frame2new_fils[frame_num])
-                    frame2new_fils[frame_num] = []
-                    assign_fire_track_for_each_filament(frame, fire_track_from_one_cluster, frame_num)
+                    assign_fire_track_for_each_filament(frame, fire_tracks, frame_num)
 
-            for frame in list(video.frames)[
-                         frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frames
-                frame.filaments = [fil for fil in frame.filaments if fil not in all_merged_fils]
-                frame.filaments.extend(frame2new_fils[frame.num])
+
+                # process one specific case!
+                all_merged_fils = []
+                frame2new_fils = defaultdict(list)
+                for ft_num, ft in enumerate(fire_tracks):
+                    ### Filter too short tracks
+                    ### TODO: make constant!
+                    frame_num2number_of_fils = {k: len(v) for k, v in ft.frames_filaments.items()}
+
+                    print(ft, ft_num)
+                    print(frame_num2number_of_fils)
+
+                    def merge_filaments_that_were_broken():
+                        pass
+
+                    def split_filaments_that_were_merged():
+                        pass
+
+                    empty_frames = [k for k, v in frame_num2number_of_fils.items() if v == 0]
+
+                    one_filament_frames = [k for k, v in frame_num2number_of_fils.items() if v == 1]
+                    multiple_filaments_frames = [k for k, v in frame_num2number_of_fils.items() if v > 1]
+
+                    if len(one_filament_frames) + len(multiple_filaments_frames) < 3:
+                        continue
+
+                    sum_length = 0
+                    count = 0
+                    for k, v in ft.frames_filaments.items():
+                        if len(v) == 1:
+                            sum_length += v[0][1].length
+                            count += 1
+
+                    if count == 0:
+                        continue
+
+                    mean_filament_length = sum_length / count
+
+                    for ind, (k, v) in enumerate(ft.frames_filaments.items()):
+                        if k in multiple_filaments_frames:
+                            print('our case!')
+                            new_length = 0
+                            for dist, fil in v:
+                                new_length += fil.length
+                            # TODO: fix 10, 20 is very strange constant
+                            # TODO: can be several different filaments on one fire track
+                            mean_len = mean_filament_length
+                            if abs(new_length - mean_len) < 20:
+                                print('really our case!')
+                                ### check that filaments are really one
+                                ### not two different filaments on one track
+                                ### how to do that?
+
+                                fils_to_merge = [fil for _, fil in v]
+
+                                ### TODO: fix assume that we have only two fils that need to be merged
+                                # need to connect two filaments the right way
+                                if len(fils_to_merge) != 2:
+                                    continue
+
+                                first_filament = fils_to_merge[0]
+                                second_filament = fils_to_merge[1]
+
+                                new_filament = connect_two_filaments(first_filament, second_filament)
+
+                                if new_filament is None:
+                                    # TODO: what filament is the right one?
+                                    # The one that is more similar wrt to lengths
+                                    continue
+
+                                frame2new_fils[k].append(new_filament)
+                                ft.frames_filaments[k] = [[1.0, new_filament]]
+
+                                all_merged_fils.extend(fils_to_merge)
+
+                                all_changed_filaments[k].extend(fils_to_merge)
+
+                                one_filament_frames.append(k)
+
+                                mean_filament_length, count = adjust_mean(mean_filament_length, count, new_filament.length)
+
+                    print(empty_frames)
+                    for k in empty_frames:
+                        ### TODO: to think of something
+                        ### TODO: check that we really can do this
+                        ### TODO: add first filament
+
+                        if k == frame_num_start + FIRE_NUM - 1 and k - 1 in one_filament_frames:
+                            print('it is a last one!')
+                            filaments = ft.frames_filaments[k - 1]
+                            if check_filament_is_on_end_of_trace(filaments[0][1], ft.branch.points):
+                                continue
+                            future_filament = None
+                            prev_filament = ft.frames_filaments[k - 1][0][1]
+                        elif k == frame_num_start and k + 1 in one_filament_frames:
+                            print('it is a first one')
+                            future_filament = ft.frames_filaments[k + 1][0][1]
+                            prev_filament = None
+                        elif k - 1 in one_filament_frames and k + 1 in one_filament_frames:
+                            ### can interpolate???, try to reconst k
+                            future_filament = ft.frames_filaments[k + 1][0][1]
+                            prev_filament = ft.frames_filaments[k - 1][0][1]
+                        else:
+                            continue
+
+                        new_filament = reconstruct_filament(prev_filament, future_filament, mean_filament_length, ft)
+
+                        ### TODO: dictionary change size during iteration !!!
+                        # ft.frames_filaments[k-1].append([1.0, new_filament])
+                        frame2new_fils[k].append(new_filament)
+                        one_filament_frames.append(k)
+
+                        all_changed_filaments[k].append(new_filament)
+
+                        mean_filament_length, count = adjust_mean(mean_filament_length, count, new_filament.length)
+
+                        distances_to_filaments = [calc_distance_track_filament(filament.coords.tolist(), new_filament) for
+                                                  filament in video.frames[k].filaments]
+                        min_dist = min(distances_to_filaments)
+
+                        # TODO: fix random constant
+                        # TODO: what if several min dist!!!
+                        if min_dist < 3:
+                            """
+                            Try to find filament that included this new filament and cut it. 
+                            """
+                            min_ind = distances_to_filaments.index(min_dist)
+                            too_long_filament = video.frames[k].filaments[min_ind]
+                            relation = [
+                                [min([np.sqrt(((coord - coord2) ** 2).sum()) for coord2 in new_filament.coords]), coord] for
+                                coord in too_long_filament.coords]
+                            print(relation)
+                            shorted_coords = [coord for coord in too_long_filament.coords if min(
+                                [np.sqrt(((coord - coord2) ** 2).sum()) for coord2 in new_filament.coords]) > 2]
+                            # TODO: what if it breaks three long branches and as result only one will remain, but must remain two!
+                            print(len(shorted_coords))
+                            shorted_coords = get_biggest_chunk_array_2(shorted_coords)
+                            if shorted_coords is not None:
+                                print(len(shorted_coords))
+                                new_shorted_filament = Filament(shorted_coords)
+                                video.frames[k].filaments[min_ind] = new_shorted_filament
+
+                                all_changed_filaments[k].append(new_shorted_filament)
+
+                        print(distances_to_filaments)
+                        print('empty frame')
+
+                    ### change all firetracks from one cluster
+                    fire_track_from_one_cluster = [f_track for f_track in fire_tracks if
+                                                   f_track.cluster_num == ft.cluster_num]
+                    for frame in list(video.frames)[
+                                 frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frame
+                        frame_num = frame.num
+                        frame.filaments = [fil for fil in frame.filaments if fil not in all_merged_fils]
+                        frame.filaments.extend(frame2new_fils[frame_num])
+                        frame2new_fils[frame_num] = []
+                        assign_fire_track_for_each_filament(frame, fire_track_from_one_cluster, frame_num)
+
+                for frame in list(video.frames)[
+                             frame_num_start:frame_num_start + FIRE_NUM]:  # working with first fire_frames
+                    frame.filaments = [fil for fil in frame.filaments if fil not in all_merged_fils]
+                    frame.filaments.extend(frame2new_fils[frame.num])
 
             self.visualize_by_frames_2(all_changed_filaments, f'./{frame_num}_fire.tif')
             return fire_tracks
