@@ -172,6 +172,11 @@ class Filament:
         return np.sqrt(((filament_1.cm - filament_2.cm) ** 2).sum())
 
     @staticmethod
+    def fils_distance_cm_length(filament_1, filament_2, lambda_=0.5):
+        return lambda_ * Filament.fils_distance_cm(filament_1, filament_2) + \
+               (1 - lambda_) * np.sqrt(((filament_1.length - filament_2.length)**2))
+
+    @staticmethod
     def get_long_short_filament(filament_1, filament_2):
         short_fil, long_fil = filament_1, filament_2
         if len(short_fil.xs) > len(long_fil.xs):
@@ -514,12 +519,14 @@ def get_path_fil_length(path, path_filament_len_type):
 
     return filament_len
 
+
 def choose_distance(type_):
     if type_ == 'cm':
         return Filament.fils_distance_cm
     elif type_ == 'fast_like':
         return Filament.fils_distance_fast
-
+    elif type_ == 'cm_length':
+        return Filament.fils_distance_cm_length
 
 def choose_gate_func(type_):
     if type_ == 'constant':
@@ -700,6 +707,7 @@ def add_filament_v2(path, found_filament):
     path.add(found_filament)
     find_tail(path)
 
+
 def reconstruct_filament(prev_filament: Filament, future_filament: Filament,
                          mean_filament_length: float, ft: FireTrack):
     """
@@ -707,6 +715,7 @@ def reconstruct_filament(prev_filament: Filament, future_filament: Filament,
     If only last, take last point in firetrack and expand until length
     """
     from scipy.interpolate import splprep, splev
+
     x, y = zip(*ft.branch.points)
     tck, u = splprep([np.array(x), np.array(y)], s=0)
     points_to_construct_filament = splev(np.linspace(0, 1, 100), tck)
@@ -1120,7 +1129,6 @@ class Video:
                     found_filament = frame.filaments[closest_filament]
                     filament_len = get_path_fil_length(path, path_filament_len_type)
 
-
                     max_length = max(found_filament.length, filament_len)
                     min_length = min(found_filament.length, filament_len)
 
@@ -1152,18 +1160,22 @@ class Video:
         self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 3]
         print(number_of_tracks_before, len(self.tracks.paths))
 
-    def create_links_nn_la(self, distance_type='cm', prediction_type='trivial'):
+    def create_links_nn_la(self, distance_type='cm',
+                         gate_type='constant',
+                         path_filament_len_type='last',
+                         process_length_small_filaments_type='simple', len_small_filaments=20,
+                         ratio_big_filaments=1.5, ratio_small_filaments=3.5,
+                         add_filaments_fast=True, prediction_type='trivial'):
         """
         with or withput Kalman Filter we will try to estimate
         next element with linear assignment problem!
         :return:
         """
         distance = choose_distance(distance_type)
+        gate_func = choose_gate_func(gate_type)
+        add_filament = choose_add_fil_func(add_filaments_fast)
 
         for frame_num, frame in enumerate(self.frames):
-            if frame_num == 13:
-                print(frame_num)
-            # frame.filaments = [el for el in frame.filaments if el.number_of_tips() == 2]
             if frame_num == 0:
                 self.tracks = Tracks(frame, prediction_type)  # initialize all paths with filaments from first frame
                 continue
@@ -1179,17 +1191,24 @@ class Video:
                 pidnf2pid[path_ind_notfinished] = path_ind
                 path_ind_notfinished += 1
 
-                distance_to_fils = [0 for _ in frame.filaments]
+                distance_to_fils = [INF_DISTANCE for _ in frame.filaments]
+
                 for fil_ind, f_filament in enumerate(frame.filaments):
-                    max_length = max(f_filament.length, path.mean_length)
-                    min_length = min(f_filament.length, path.mean_length)
-                    if max_length / min_length > 2.5:
+                    filament_len = get_path_fil_length(path, path_filament_len_type)
+
+                    max_length = max(f_filament.length, filament_len)
+                    min_length = min(f_filament.length, filament_len)
+
+                    if check_filament_length_ratio(max_length, min_length, ratio_big_filaments,
+                                                   ratio_small_filaments, len_small_filaments,
+                                                   process_length_small_filaments_type) == INF_DISTANCE:
                         distance_to_fils[fil_ind] = INF_DISTANCE
                         continue
 
                     distance_to_fils[fil_ind] = distance(path.next_filament_predicted, f_filament)
-                    if distance_to_fils[fil_ind] > 100:
-                        distance_to_fils[fil_ind] = INF_DISTANCE
+
+                if distance_to_fils:
+                    distance_to_fils = gate_func(path, distance_to_fils)
 
                 dist_matrix.append(distance_to_fils)
 
@@ -1208,7 +1227,7 @@ class Video:
                     path_to_continue.is_finished = True
                 else:
                     filament_to_continue_path = frame.filaments[c_i]
-                    add_filament_v1(path_to_continue, filament_to_continue_path)
+                    add_filament(path_to_continue, filament_to_continue_path)
                     used_filaments[c_i] += 1
 
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
@@ -1232,7 +1251,7 @@ def create_argparse():
     parser = argparse.ArgumentParser(description='Track processed tiff file with filaments')
     parser.add_argument('file_path', type=str, help="path to tiff file for tracking")
     parser.add_argument('--use_fire', type=bool, default=False, help='use fire for tracking')
-    parser.add_argument('--dist_type', type=str, default='cm', choices=['cm', 'fast_like'],
+    parser.add_argument('--dist_type', type=str, default='cm', choices=['cm', 'fast_like', 'cm_length'],
                         help='what type of distance to use between filaments')
     parser.add_argument('--mdf_to_save', type=str, default='gnn_cm.mdf',
                         help="name of saved mdf file with tracking results")
@@ -1267,12 +1286,12 @@ def main(args):
     #         Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]),
     #                                 path_to_save=f'/Users/danilkononykhin/Desktop/{ind}.png')
 
-    vid.visualize_by_frames(f'/Users/danilkononykhin/Desktop/res_{path_to_file.stem}.tif')
+    # vid.visualize_by_frames(f'/Users/danilkononykhin/Desktop/res_{path_to_file.stem}.tif')
 
     if args.use_fire:
         vid.work_with_fire()
 
-    vid.visualize_by_frames(f'/Users/danilkononykhin/Desktop/res_{path_to_file.stem}_fire.tif')
+    # vid.visualize_by_frames(f'/Users/danilkononykhin/Desktop/res_{path_to_file.stem}_fire.tif')
     # for ind, frame in enumerate(vid.frames):
     #     if ind >= 5 and ind <= 10:
     #         Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]),
@@ -1290,7 +1309,17 @@ def main(args):
             add_filaments_fast=args.add_filaments_fast
         )
     elif args.tracker_type == 'lap':
-        vid.create_links_nn_la(distance_type=args.dist_type, prediction_type=args.prediction_type)
+        vid.create_links_nn_la(
+            distance_type=args.dist_type,
+            gate_type=args.gate_type,
+            path_filament_len_type=args.path_filament_len_type,
+            process_length_small_filaments_type=args.process_length_small_filaments_type,
+            len_small_filaments=args.len_small_filaments,
+            ratio_big_filaments=args.ratio_big_filaments,
+            ratio_small_filaments=args.ratio_small_filaments,
+            add_filaments_fast=args.add_filaments_fast,
+            prediction_type=args.prediction_type
+        )
     else:
         print('Something is wrong. Not known tracker type')
         return
