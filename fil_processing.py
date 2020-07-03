@@ -1247,10 +1247,20 @@ def load_vid(path_to_results: pathlib.Path) -> Video:
     return vid
 
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def create_argparse():
     parser = argparse.ArgumentParser(description='Track processed tiff file with filaments')
     parser.add_argument('file_path', type=str, help="path to tiff file for tracking")
-    parser.add_argument('--use_fire', type=bool, default=False, help='use fire for tracking')
+    parser.add_argument('--use_fire', type=str2bool, default=False, help='use fire for tracking')
     parser.add_argument('--dist_type', type=str, default='cm', choices=['cm', 'fast_like', 'cm_length'],
                         help='what type of distance to use between filaments')
     parser.add_argument('--mdf_to_save', type=str, default='gnn_cm.mdf',
@@ -1269,7 +1279,7 @@ def create_argparse():
     parser.add_argument('--len_small_filaments', type=int, default=20, help="what filament is considered small")
     parser.add_argument('--ratio_big_filaments', type=float, default=1.5, help="ratio of lens for big fils")
     parser.add_argument('--ratio_small_filaments', type=float, default=3.5, help="ratio of lens for small fils")
-    parser.add_argument('--add_filaments_fast', type=bool, default=True,
+    parser.add_argument('--add_filaments_fast', type=str2bool, default=True,
                         help="add new fils to track with fast overlap score or always using our method")
     return parser
 
