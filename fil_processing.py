@@ -417,6 +417,25 @@ def get_biggest_chunk_array_2(fil):
     return fil
 
 
+def check_filament_length_ratio(max_length, min_length, ratio_big_filaments,
+                                ratio_small_filaments, len_small_filaments,
+                                process_length_small_filaments_type):
+    if process_length_small_filaments_type == 'simple':
+        if max_length / min_length > ratio_big_filaments:
+            return INF_DISTANCE
+    elif process_length_small_filaments_type == 'no_processing':
+        if max_length > len_small_filaments and max_length / min_length > ratio_big_filaments:
+            return INF_DISTANCE
+    elif process_length_small_filaments_type == 'processing':
+        if max_length > len_small_filaments and max_length / min_length > ratio_big_filaments:
+            return INF_DISTANCE
+        if max_length < len_small_filaments and max_length / min_length > ratio_small_filaments:
+            return INF_DISTANCE
+    else:
+        raise NotImplementedError
+
+    return -1
+
 # TODO: change this later as was discussed!!!
 def process_filaments_simple(filament_list):
     # all_branches = []
@@ -474,6 +493,26 @@ class Frame:
             img = Filament.draw_filament(filament, img, to_draw=False)
         return img
 
+
+def get_path_fil_length(path, path_filament_len_type):
+    path_fils_length = [fil.length for fil in path.filament_path]
+    if path_filament_len_type == 'last':
+        filament_len = path_fils_length[-1]
+    elif path_filament_len_type == 'mean':
+        filament_len = sum(path_fils_length) / len(path_fils_length)
+    elif path_filament_len_type == 'weighted_mean':
+        # den_mean = 0
+        # weighted_mean = 0
+        # for ind_mean, pfl in enumerate(path_fils_length):
+        #     den_mean += ind_mean + 1
+        #     weighted_mean += (ind_mean + 1) * pfl
+        # weighted_mean = weighted_mean / den_mean
+        # mean_path_len = weighted_mean
+        raise NotImplementedError
+    else:
+        raise NotImplementedError
+
+    return filament_len
 
 def choose_distance(type_):
     if type_ == 'cm':
@@ -1037,7 +1076,6 @@ class Video:
             fire_tracks = process_fire_cluster(self, fire_clusters, ind * FIRE_NUM)
             fire_tracks_list.append(fire_tracks)
 
-
     def create_links_gnn(self, distance_type='cm',
                          gate_type='constant',
                          path_filament_len_type='last',
@@ -1080,49 +1118,17 @@ class Video:
                         break
 
                     found_filament = frame.filaments[closest_filament]
-                    path_fils_length = [fil.length for fil in path.filament_path]
+                    filament_len = get_path_fil_length(path, path_filament_len_type)
 
-                    if path_filament_len_type == 'last':
-                        filament_len = path_fils_length[-1]
-                    elif path_filament_len_type == 'mean':
-                        filament_len = sum(path_fils_length) / len(path_fils_length)
-                    elif path_filament_len_type == 'weighted_mean':
-                        # den_mean = 0
-                        # weighted_mean = 0
-                        # for ind_mean, pfl in enumerate(path_fils_length):
-                        #     den_mean += ind_mean + 1
-                        #     weighted_mean += (ind_mean + 1) * pfl
-                        # weighted_mean = weighted_mean / den_mean
-                        # mean_path_len = weighted_mean
-                        raise NotImplementedError
-                    else:
-                        raise NotImplementedError
 
                     max_length = max(found_filament.length, filament_len)
                     min_length = min(found_filament.length, filament_len)
 
-                    # TODO: fix this random constant
-                    if process_length_small_filaments_type == 'simple':
-                        if max_length / min_length > ratio_big_filaments:
-                            ### bad filament
-                            distance_to_fils[closest_filament] = INF_DISTANCE
-                            continue
-                    elif process_length_small_filaments_type == 'no_processing':
-                        if max_length > len_small_filaments and max_length / min_length > ratio_big_filaments:
-                            ### bad filament
-                            distance_to_fils[closest_filament] = INF_DISTANCE
-                            continue
-                    elif process_length_small_filaments_type == 'processing':
-                        if max_length > len_small_filaments and max_length / min_length > ratio_big_filaments:
-                            ### bad filament
-                            distance_to_fils[closest_filament] = INF_DISTANCE
-                            continue
-                        if max_length < len_small_filaments and max_length / min_length > ratio_small_filaments:
-                            ### bad filament
-                            distance_to_fils[closest_filament] = INF_DISTANCE
-                            continue
-                    else:
-                        raise NotImplementedError
+                    if check_filament_length_ratio(max_length, min_length, ratio_big_filaments,
+                                                   ratio_small_filaments, len_small_filaments,
+                                                   process_length_small_filaments_type) == INF_DISTANCE:
+                        distance_to_fils[closest_filament] = INF_DISTANCE
+                        continue
 
                     used_filaments[closest_filament] += 1
                     if used_filaments[closest_filament] != 1:
@@ -1153,6 +1159,7 @@ class Video:
         :return:
         """
         distance = choose_distance(distance_type)
+
         for frame_num, frame in enumerate(self.frames):
             if frame_num == 13:
                 print(frame_num)
@@ -1179,11 +1186,6 @@ class Video:
                     if max_length / min_length > 2.5:
                         distance_to_fils[fil_ind] = INF_DISTANCE
                         continue
-
-                    # xmin, xmax, ymin, ymax = path.check_gate()
-                    # if not (xmin <= f_filament.center_x <= xmax and ymin <= f_filament.center_y <= ymax):
-                    #     distance_to_fils[fil_ind] = INF_DISTANCE
-                    #     continue
 
                     distance_to_fils[fil_ind] = distance(path.next_filament_predicted, f_filament)
                     if distance_to_fils[fil_ind] > 100:
