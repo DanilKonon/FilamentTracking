@@ -809,7 +809,8 @@ def reconstruct_filament(prev_filament: Filament, future_filament: Filament,
 class Video:
     def __init__(self, list_images,
                  fire_frames,
-                 processing_frame: str):
+                 processing_frame: str,
+                 path_to_results):
         """
         Assume that all pictures from list_images of equal size
         Maybe should check list_images!!!
@@ -824,6 +825,11 @@ class Video:
         self.frames = [Frame(img[:, :, 0], ind, processing_frame) for ind, img in enumerate(list_images)]
         self.fire_frames = fire_frames
         self.tracks = Tracks()
+        self.loaded_fire = False
+        self.path_to_results = path_to_results
+
+    def update_path_to_results(self, path_to_res):
+        self.path_to_results = path_to_res
 
     def visualize_by_frames(self, save_file):
         img = np.zeros(shape=[len(self.frames), self.width, self.height, 3])
@@ -1078,12 +1084,18 @@ class Video:
             self.visualize_by_frames_2(all_changed_filaments, f'./{frame_num}_fire.tif')
             return fire_tracks
 
+        if self.loaded_fire:
+            return
+
         fire_tracks_list = []
         for ind, fire_clusters in enumerate(self.fire_frames):
             if ind == 2:
                 print(2)
             fire_tracks = process_fire_cluster(self, fire_clusters, ind * FIRE_NUM)
             fire_tracks_list.append(fire_tracks)
+
+        with open(self.path_to_results / 'save_fire.pkl', 'wb') as f:
+            pkl.dump(self, f)
 
     def create_links_gnn(self, distance_type='cm',
                          gate_type='constant',
@@ -1176,6 +1188,7 @@ class Video:
         add_filament = choose_add_fil_func(add_filaments_fast)
 
         for frame_num, frame in enumerate(self.frames):
+            frame.filaments = [filament for filament in frame.filaments if filament.length != 0]
             if frame_num == 0:
                 self.tracks = Tracks(frame, prediction_type)  # initialize all paths with filaments from first frame
                 continue
@@ -1239,11 +1252,24 @@ class Video:
         print(len(self.tracks.paths))
 
 
-def load_vid(path_to_results: pathlib.Path) -> Video:
+def load_vid(path_to_results: pathlib.Path, use_fire: bool, forse_calc_fire=False) -> Video:
     # TODO: make better save
-    path_to_save = str(path_to_results / 'save.pkl')
+    loaded_fire = False
+
+    if use_fire and not forse_calc_fire:
+        path_to_fire = path_to_results / 'save_fire.pkl'
+        if path_to_fire.exists():
+            path_to_save = path_to_fire
+            loaded_fire = True
+        else:
+            path_to_save = str(path_to_results / 'save.pkl')
+    else:
+        path_to_save = str(path_to_results / 'save.pkl')
+
     with open(path_to_save, 'rb') as f:
         vid = pkl.load(f)
+
+    vid.loaded_fire = loaded_fire
     return vid
 
 
@@ -1281,6 +1307,8 @@ def create_argparse():
     parser.add_argument('--ratio_small_filaments', type=float, default=3.5, help="ratio of lens for small fils")
     parser.add_argument('--add_filaments_fast', type=str2bool, default=True,
                         help="add new fils to track with fast overlap score or always using our method")
+    parser.add_argument('--force_calculate_fire', type=str2bool, default=False,
+                        help='whether to use saved fire result or not')
     return parser
 
 
@@ -1289,8 +1317,9 @@ def main(args):
     path_to_results = pathlib.Path('./results')
     path_to_results = path_to_results / path_to_file.stem
 
-    vid = load_vid(path_to_results)
-
+    vid = load_vid(path_to_results, args.use_fire, args.force_calculate_fire)
+    vid.update_path_to_results(path_to_results)
+    print(vid.path_to_results)
     # for ind, frame in enumerate(vid.frames):
     #     if ind >= 5 and ind <= 10:
     #         Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]),

@@ -404,7 +404,7 @@ class TiffVideo:
 
     def _extract_filaments_from_frames(self, processing_type):
         # self.results is binarized images.
-        self.video = Video(self.results, self.fire_frames, processing_type)
+        self.video = Video(self.results, self.fire_frames, processing_type, self.path_to_results)
         with open(self.path_to_results / 'save.pkl', 'wb') as f:
             pkl.dump(self.video, f)
 
