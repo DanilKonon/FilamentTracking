@@ -909,6 +909,29 @@ class Video:
             count += 1
             return mean_filament_length, count
 
+        def check_right_trace_orientation(fire_track: FireTrack, check_frame_num: int):
+            """
+            Assume that we have 1 or -1 filament assigned (as it is called only from such places).
+            check_frame_num tells us it is 1 or -1 frames.
+            """
+            def get_dists_0_m1(v, fire_track):
+                fil: Filament = v[0][1]
+                dist_to_0 = np.min(np.sum(np.sqrt((fil.coords - fire_track.branch.points[0]) ** 2), axis=1))
+                dist_to_m1 = np.min(np.sum(np.sqrt((fil.coords - fire_track.branch.points[-1]) ** 2), axis=1))
+                return dist_to_0, dist_to_m1
+
+            for ind, (k, v) in enumerate(fire_track.frames_filaments.items()):
+                if ind == 1 and k == check_frame_num:
+                    dist_to_0, dist_to_m1 = get_dists_0_m1(v, fire_track)
+                    if dist_to_m1 < dist_to_0:
+                        fire_track.branch.points = fire_track.branch.points[::-1]
+                elif ind == len(fire_track.frames_filaments) - 2 and k == check_frame_num:
+                    dist_to_0, dist_to_m1 = get_dists_0_m1(v, fire_track)
+                    if dist_to_m1 > dist_to_0:
+                        fire_track.branch.points = fire_track.branch.points[::-1]
+
+
+
         def process_fire_cluster(video, fire_clusters, frame_num_start):
             all_changed_filaments = defaultdict(list)
 
@@ -939,6 +962,8 @@ class Video:
                 for ft_num, ft in enumerate(fire_tracks):
                     ### Filter too short tracks
                     ### TODO: make constant!
+                    if ft_num == 11:
+                        print('here!')
                     frame_num2number_of_fils = {k: len(v) for k, v in ft.frames_filaments.items()}
 
                     print(ft, ft_num)
@@ -1021,15 +1046,18 @@ class Video:
 
                         if k == frame_num_start + FIRE_NUM - 1 and k - 1 in one_filament_frames:
                             print('it is a last one!')
-                            filaments = ft.frames_filaments[k - 1]
-                            if check_filament_is_on_end_of_trace(filaments[0][1], ft.branch.points):
-                                continue
                             future_filament = None
                             prev_filament = ft.frames_filaments[k - 1][0][1]
+                            if check_filament_is_on_end_of_trace(prev_filament, ft.branch.points):
+                                continue
+                            check_right_trace_orientation(ft, k - 1)
                         elif k == frame_num_start and k + 1 in one_filament_frames:
                             print('it is a first one')
                             future_filament = ft.frames_filaments[k + 1][0][1]
                             prev_filament = None
+                            if check_filament_is_on_end_of_trace(future_filament, ft.branch.points):
+                                continue
+                            check_right_trace_orientation(ft, k + 1)
                         elif k - 1 in one_filament_frames and k + 1 in one_filament_frames:
                             ### can interpolate???, try to reconst k
                             future_filament = ft.frames_filaments[k + 1][0][1]
@@ -1087,7 +1115,7 @@ class Video:
                         frame_num = frame.num
                         frame.filaments = [fil for fil in frame.filaments if fil not in all_merged_fils]
                         frame.filaments.extend(frame2new_fils[frame_num])
-                        frame2new_fils[frame_num] = []
+                        frame2new_fils[frame_num] = []  # all merged fils think about
                         assign_fire_track_for_each_filament(frame, fire_track_from_one_cluster, frame_num)
 
                 for frame in list(video.frames)[
