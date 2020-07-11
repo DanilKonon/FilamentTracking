@@ -659,6 +659,7 @@ def find_closest_ind_in_array_to_point(points, close_point):
             min_ind = ind
     return min_ind
 
+
 def find_tail(path):
     """
     Modifies path variable
@@ -674,10 +675,24 @@ def find_tail(path):
     min_tail = min([np.sqrt(((point - tail) ** 2).sum()) for point in first_filament.coords])
     if min_tail > min_head:
         path.filament_path = [
-            *path.filament_path[:-2],
-            Filament(first_filament.coords[::-1], number_of_tips=first_filament.number_of_tips),
+            *path.filament_path[:-1],
+            # Filament(first_filament.coords[::-1], number_of_tips=first_filament.number_of_tips),
             Filament(second_filament.coords[::-1], number_of_tips=second_filament.number_of_tips)
         ]
+
+    # check first filament
+    if len(path.filament_path) == 2:
+        second_filament = path.filament_path[-2]
+        first_filament = path.filament_path[-1]
+        head = second_filament.head
+        tail = second_filament.tail
+        min_head = min([np.sqrt(((point - head) ** 2).sum()) for point in first_filament.coords])
+        min_tail = min([np.sqrt(((point - tail) ** 2).sum()) for point in first_filament.coords])
+        if min_tail < min_head:
+            path.filament_path = [
+                Filament(second_filament.coords[::-1], number_of_tips=second_filament.number_of_tips),
+                Filament(first_filament.coords, number_of_tips=first_filament.number_of_tips)
+            ]
 
     return True
 
@@ -698,7 +713,6 @@ def add_filament_v1(path, found_filament):
         find_tail(path)
 
 
-# TODO: try this method
 def add_filament_v2(path, found_filament):
     """
     Don't use distance from FIRE,
@@ -1248,7 +1262,7 @@ class Video:
                                        prediction_type=prediction_type) for fil_num in new_filaments]
 
         print(len(self.tracks.paths))
-        self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 2]
+        self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 3]
         print(len(self.tracks.paths))
 
 
@@ -1282,6 +1296,7 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
 
 def create_argparse():
     parser = argparse.ArgumentParser(description='Track processed tiff file with filaments')
