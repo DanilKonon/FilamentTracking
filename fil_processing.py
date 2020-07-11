@@ -571,7 +571,7 @@ def motion_gate(path: Path, distance_to_fils):
     # weighted_mean = weighted_mean / den_mean
     # found_displacement = weighted_mean
 
-    return constant_gate(path, distance_to_fils, constant=3*found_displacement)
+    return constant_gate(path, distance_to_fils, constant=5*found_displacement)
 
 
 # Add variations to this parameter
@@ -1262,9 +1262,7 @@ class Video:
 
                     distance_to_fils[fil_ind] = distance(path.next_filament_predicted, f_filament)
 
-                if distance_to_fils:
-                    distance_to_fils = gate_func(path, distance_to_fils)
-
+                distance_to_fils = gate_func(path, distance_to_fils)
                 dist_matrix.append(distance_to_fils)
 
             dist_matrix = np.array(dist_matrix)
@@ -1278,7 +1276,7 @@ class Video:
                 # r_i -- for cost_matrix
                 a_r_i = pidnf2pid[r_i]
                 path_to_continue = self.tracks.paths[a_r_i]
-                if dist_matrix[r_i, c_i] > path_to_continue.mean_length:
+                if dist_matrix[r_i, c_i] == INF_DISTANCE:
                     path_to_continue.is_finished = True
                 else:
                     filament_to_continue_path = frame.filaments[c_i]
