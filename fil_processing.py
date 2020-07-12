@@ -930,8 +930,6 @@ class Video:
                     if dist_to_m1 > dist_to_0:
                         fire_track.branch.points = fire_track.branch.points[::-1]
 
-
-
         def process_fire_cluster(video, fire_clusters, frame_num_start):
             all_changed_filaments = defaultdict(list)
 
@@ -955,15 +953,10 @@ class Video:
                     frame_num = frame.num
                     assign_fire_track_for_each_filament(frame, fire_tracks, frame_num)
 
-
                 # process one specific case!
                 all_merged_fils = []
                 frame2new_fils = defaultdict(list)
                 for ft_num, ft in enumerate(fire_tracks):
-                    ### Filter too short tracks
-                    ### TODO: make constant!
-                    if ft_num == 11:
-                        print('here!')
                     frame_num2number_of_fils = {k: len(v) for k, v in ft.frames_filaments.items()}
 
                     print(ft, ft_num)
@@ -1040,10 +1033,6 @@ class Video:
 
                     print(empty_frames)
                     for k in empty_frames:
-                        ### TODO: to think of something
-                        ### TODO: check that we really can do this
-                        ### TODO: add first filament
-
                         if k == frame_num_start + FIRE_NUM - 1 and k - 1 in one_filament_frames:
                             print('it is a last one!')
                             future_filament = None
