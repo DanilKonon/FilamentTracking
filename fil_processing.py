@@ -1270,6 +1270,11 @@ class Video:
             # col_ind -- filaments from frames
 
             row_ind, col_ind = linear_sum_assignment(dist_matrix)
+            path_nums_to_be_finished = [
+                path_num_to_finish for path_num_to_finish in pidnf2pid if path_num_to_finish not in row_ind
+            ]
+            for path_num_to_finish in path_nums_to_be_finished:
+                self.tracks.paths[pidnf2pid[path_num_to_finish]].is_finished = True
             used_filaments = [0 for _ in frame.filaments]
             for r_i, c_i in zip(row_ind, col_ind):
                 # a_r_i -- for self.tracks.paths
@@ -1279,9 +1284,9 @@ class Video:
                 if dist_matrix[r_i, c_i] == INF_DISTANCE:
                     path_to_continue.is_finished = True
                 else:
+                    used_filaments[c_i] += 1
                     filament_to_continue_path = frame.filaments[c_i]
                     add_filament(path_to_continue, filament_to_continue_path)
-                    used_filaments[c_i] += 1
 
             new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
             self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num],
