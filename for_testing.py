@@ -85,25 +85,31 @@ def test_3():
     plt.show()
 
 
-def main():
-    d = {
-        "a": 1,
-        "b": 2,
-        "c": 3
-    }
+import sys
+from pathlib import Path
 
-    for k, v in d.items():
-        print(k, v)
-        if k == 'b':
-            d[k] = 20
-
-    print(d)
-
-    a = [*[1, 2, 3], *[4, 5, 6]]
-    print(a)
-
-    print(len([el for el in []]))
+def main(path_to_folder):
+    # d = {
+    #     "a": 1,
+    #     "b": 2,
+    #     "c": 3
+    # }
+    #
+    # for k, v in d.items():
+    #     print(k, v)
+    #     if k == 'b':
+    #         d[k] = 20
+    #
+    # print(d)
+    #
+    # a = [*[1, 2, 3], *[4, 5, 6]]
+    # print(a)
+    #
+    # print(len([el for el in []]))
+    for p in Path(path_to_folder).iterdir():
+        if p.suffix == '.mdf':
+            p.unlink()
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1])

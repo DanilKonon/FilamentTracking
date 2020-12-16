@@ -192,22 +192,39 @@ def gauss(extr, sigma, s):
 def create_gauss(sigma):
     sigma = float(sigma)
     n = round(3 * sigma)
-    print(sigma, n)
+    #     print(sigma, n)
 
     if n == 0:
         n = 1
 
     sh = 2 * n + 1
-    y, x = np.mgrid[-sh//2:sh//2+1,-sh//2:sh//2+1]
+    if sh % 2 == 0:
+        y, x = np.mgrid[-sh // 2 + 1:sh // 2 + 1, -sh // 2 + 1:sh // 2 + 1] - 1
+    else:
+        y, x = np.mgrid[-sh // 2 + 1:sh // 2 + 1, -sh // 2 + 1:sh // 2 + 1]
+
     y = -y.astype('float')
     x = x.astype('float')
-    g_v = 1.0 / (2 * np.pi * sigma * sigma) * np.exp(-(x * x + y * y) / (2 * sigma * sigma))
+    g_v = np.exp(-(x * x + y * y) / (2 * sigma * sigma)) / (2 * np.pi * sigma * sigma)
     G_x = -x * g_v / (sigma ** 2)
     G_y = -y * g_v / (sigma ** 2)
     G_xx = (x * x / (sigma ** 2) - 1.0) * g_v / (sigma ** 2)
     G_yy = (y * y / (sigma ** 2) - 1.0) * g_v / (sigma ** 2)
     G_xy = x * y * g_v / (sigma ** 4)
-    return G_x / np.sum(G_x), G_y / np.sum(G_y), G_xx / np.sum(G_xx), G_yy / np.sum(G_yy), G_xy / np.sum(G_xy)
+
+    return G_x, G_y, G_xx, G_yy, G_xy
+
+
+    # y, x = np.mgrid[-sh//2:sh//2+1,-sh//2:sh//2+1]
+    # y = -y.astype('float')
+    # x = x.astype('float')
+    # g_v = 1.0 / (2 * np.pi * sigma * sigma) * np.exp(-(x * x + y * y) / (2 * sigma * sigma))
+    # G_x = -x * g_v / (sigma ** 2)
+    # G_y = -y * g_v / (sigma ** 2)
+    # G_xx = (x * x / (sigma ** 2) - 1.0) * g_v / (sigma ** 2)
+    # G_yy = (y * y / (sigma ** 2) - 1.0) * g_v / (sigma ** 2)
+    # G_xy = x * y * g_v / (sigma ** 4)
+    # return G_x / np.sum(G_x), G_y / np.sum(G_y), G_xx / np.sum(G_xx), G_yy / np.sum(G_yy), G_xy / np.sum(G_xy)
 
 
 def gradient(extr, sigma, s):

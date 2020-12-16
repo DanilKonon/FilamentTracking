@@ -232,7 +232,7 @@ def my_canny(image,
 
     weak = im_t1
     strong = im_t2
-    padding = 3
+    padding = 5
     edge_pict = follow_edges(strong, weak, padding)
 
     return edge_pict
@@ -259,15 +259,20 @@ def create_gauss_2(sigma):
         n = 1
 
     sh = 2 * n + 1
-    y, x = np.mgrid[-sh // 2:sh // 2 + 1, -sh // 2:sh // 2 + 1]
+    if sh % 2 == 0:
+        y, x = np.mgrid[-sh // 2 + 1:sh // 2 + 1, -sh // 2 + 1:sh // 2 + 1] - 1
+    else:
+        y, x = np.mgrid[-sh // 2 + 1:sh // 2 + 1, -sh // 2 + 1:sh // 2 + 1]
+
     y = -y.astype('float')
     x = x.astype('float')
-    g_v = 1.0 / (2 * np.pi * sigma * sigma) * np.exp(-(x * x + y * y) / (2 * sigma * sigma))
+    g_v = np.exp(-(x * x + y * y) / (2 * sigma * sigma)) / (2 * np.pi * sigma * sigma)
     G_x = -x * g_v / (sigma ** 2)
     G_y = -y * g_v / (sigma ** 2)
     G_xx = (x * x / (sigma ** 2) - 1.0) * g_v / (sigma ** 2)
     G_yy = (y * y / (sigma ** 2) - 1.0) * g_v / (sigma ** 2)
     G_xy = x * y * g_v / (sigma ** 4)
+
     return G_x, G_y, G_xx, G_yy, G_xy
 
 
@@ -405,6 +410,16 @@ class TiffVideo:
     def _extract_filaments_from_frames(self, processing_type):
         # self.results is binarized images.
         self.video = Video(self.results, self.fire_frames, processing_type, self.path_to_results)
+
+        images = self.video.visualize_by_frames('', save_to_path=False)
+        images[:, :, :, 0] = np.array(self.results)[:, :, :, 1]
+        # images[:, :, :, 1] = np.array(self.results)[:, :, :, 1]
+
+        tifffile.imsave(
+            str(self.path_to_results / 'orig_wo_small_fils.tiff'),
+            data=images.astype('uint8')
+        )
+
         with open(self.path_to_results / 'save.pkl', 'wb') as f:
             pkl.dump(self.video, f)
 
@@ -429,15 +444,22 @@ class TiffVideo:
 
         print(f'number of photos: {self.t.shape}')
 
+        images_after_canny = []
+        images_after_filters = []
         self.results = []
         for i in list(range(self.t.shape[0])):
+            # plt.imsave('./example.png', self.t[i], cmap='gray')
             image, theta = create_steer_filter_1(self.t[i], sigma=self.params['sigma'])
+            images_after_filters.append(image)
+            # plt.imsave('./example_bc_canny.png', image, cmap='gray')
             ridge_image = my_canny(image=image, theta=theta, m_percent=self.params['m_percent'])
+            images_after_canny.append(ridge_image)
 
             ridge_image[ridge_image > 0] = 1
             ridge_image = skeletonize(ridge_image).astype('int')
             ridge_image[ridge_image > 0] = 255
 
+            # plt.imsave('./example_af_canny.png', ridge_image, cmap='gray')
             lighted_image = np.zeros(shape=[ridge_image.shape[0], ridge_image.shape[1], 3])
             lighted_image[:, :, 0] = ridge_image
             lighted_image[:, :, 1] = self.t[i]
@@ -450,7 +472,13 @@ class TiffVideo:
         images = np.stack(self.results, axis=0)
         print(f'number of photos after feature finding: {images.shape[0]}')
         #  Doesn't work!!!
+        filt_ = self.result_file.with_name('filters.tif')
+        canny_ = self.result_file.with_name('canny.tif')
+        final_ = self.result_file.with_name('final.tif')
         tifffile.imsave(str(self.result_file), data=images.astype('uint8'))
+        tifffile.imsave(str(filt_), data=(np.stack(images_after_filters, axis=0)).astype('uint8'))
+        tifffile.imsave(str(canny_), data=(np.stack(images_after_canny, axis=0)).astype('uint8'))
+        tifffile.imsave(str(final_), data=images.astype('uint8'))
 
     def _load_data(self, file_path):
         self.result_file = self._get_info_from_file_path(file_path)

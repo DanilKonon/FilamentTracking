@@ -42,6 +42,10 @@ class NucleationPoint:
                             radius_to_look):
             return 0
 
+        # TODO: why is this happening?
+        if box_to_look is None:
+            return 0
+
         if to_display:
             print(transformaed_bi[i, j], radius_to_look)
             print(box_to_look)
@@ -637,7 +641,12 @@ def process_pict_for_fire(picture, type_='max', to_display=False):
         plt.imshow(mean_picture, cmap='gray')
         plt.show()
     image, _ = create_steer_filter_1(mean_picture, sigma=2.0, make_otsu_thresh=False)
+    print(image.min(), image.max())
+
+    # TODO: why median need this?
+    image = image / image.max()
     image = median(image, selem=np.ones([5, 5]))
+    image = image * 255.0
     thresh_otsu = threshold_otsu(image)
     binary_image = (image >= thresh_otsu).astype(int)
 
@@ -764,7 +773,7 @@ def prune_clusters(clusters):
             print('ahahaha')
         print(cluster)
         br = prune_branches(cluster.branches)
-        br = delete_short_branches(br, min_length=5)
+        br = delete_short_branches(br, min_length=6)
         cluster.branches = br
         # if ind == 14:
         #     prune_branches(br)

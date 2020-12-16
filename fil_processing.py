@@ -156,7 +156,7 @@ class Filament:
     def get_number_of_tips(self):
         ### really bad ####
         ### TODO: fiiiiix ###
-        img = np.zeros(shape=(1100, 1100))
+        img = np.zeros(shape=(512, 512))
         img[self.xs, self.ys] = 1
         kernel = np.array([
             [1, 1, 1],
@@ -172,7 +172,7 @@ class Filament:
         return np.sqrt(((filament_1.cm - filament_2.cm) ** 2).sum())
 
     @staticmethod
-    def fils_distance_cm_length(filament_1, filament_2, lambda_=0.5):
+    def fils_distance_cm_length(filament_1, filament_2, lambda_=0.7):
         return lambda_ * Filament.fils_distance_cm(filament_1, filament_2) + \
                (1 - lambda_) * np.sqrt(((filament_1.length - filament_2.length)**2))
 
@@ -390,13 +390,19 @@ class Path:
         self.mean_length = sum([fil.length for fil in self.filament_path]) / len(self.filament_path)
 
 
+MIN_FIL_LEN_BF = 3
 def get_biggest_chunk_array(fil):
+    if len(fil) <= MIN_FIL_LEN_BF:
+        fil = None
+        return fil
+
     branches = np.where(np.abs(np.diff(np.array(fil), axis=0)) > 1)[0]
     if len(branches) > 0:
         possible_cuts = np.concatenate([[0], branches + 1, [len(fil)]])
         max_cut = np.argmax(np.diff(possible_cuts))
         fil = fil[possible_cuts[max_cut]:possible_cuts[max_cut + 1]]
-    if len(fil) <= 3:
+
+    if len(fil) <= MIN_FIL_LEN_BF:
         fil = None
     return fil
 
@@ -445,12 +451,25 @@ def check_filament_length_ratio(max_length, min_length, ratio_big_filaments,
 def process_filaments_simple(filament_list):
     # all_branches = []
     filaments = []
+
+    # print('fil_length: ***')
+
+    filament_lengths = [len(fil) for fil in filament_list]
+    # unique, counts = np.unique(filament_lengths, return_counts=True)
+    # plt.hist(filament_lengths, bins=len(unique))
+    # plt.show()
+
     for fil in filament_list:
         fil = get_biggest_chunk_array(fil)
         if fil is None:
             continue
 
+        # if len(fil) > 4 and len(fil) < 10:
+        #     print('aaa')
+
         filament = Filament(fil)
+        # if filament.length < 5:
+        #     continue
         # how to get two points!???
         # if filament.number_of_tips <= 2:
         filaments.append(filament)
@@ -539,7 +558,7 @@ def choose_gate_func(type_):
         return motion_dense_gate
 
 
-def constant_gate(path: Path, distance_to_fils, constant=39):
+def constant_gate(path: Path, distance_to_fils, constant=20):
     new_distance_to_fils = []
     for dist in distance_to_fils:
         if dist > constant:
@@ -845,13 +864,16 @@ class Video:
     def update_path_to_results(self, path_to_res):
         self.path_to_results = path_to_res
 
-    def visualize_by_frames(self, save_file):
+    def visualize_by_frames(self, save_file, save_to_path=True):
         img = np.zeros(shape=[len(self.frames), self.width, self.height, 3])
         for frame_num, frame in enumerate(self.frames):
             for _, filament in enumerate(frame.filaments):
                 img[frame_num][filament.xs, filament.ys, 1:3] = 255
                 img[frame_num][filament.center_x, filament.center_y, 0] = 255
-        tifffile.imsave(save_file, data=img.astype('uint8'))
+        if save_to_path:
+            tifffile.imsave(save_file, data=img.astype('uint8'))
+        else:
+            return img.astype('uint8')
 
     def visualize_by_frames_2(self, frame2filaments, save_file):
         if len(frame2filaments) == 0:
@@ -1120,10 +1142,12 @@ class Video:
 
         fire_tracks_list = []
         for ind, fire_clusters in enumerate(self.fire_frames):
-            if ind == 2:
-                print(2)
             fire_tracks = process_fire_cluster(self, fire_clusters, ind * FIRE_NUM)
             fire_tracks_list.append(fire_tracks)
+
+        MIN_FIL_LEN_AF = 6
+        for frame in self.frames:
+            frame.filaments = [filament for filament in frame.filaments if len(filament.coords) > 6]
 
         with open(self.path_to_results / 'save_fire.pkl', 'wb') as f:
             pkl.dump(self, f)
@@ -1223,6 +1247,9 @@ class Video:
             if frame_num == 0:
                 self.tracks = Tracks(frame, prediction_type)  # initialize all paths with filaments from first frame
                 continue
+
+            if frame_num == 35:
+                print(9)
             # get all previous links!
             dist_matrix = []
             # map from alll paths to not-finished
@@ -1231,6 +1258,10 @@ class Video:
             for path_ind, path in enumerate(self.tracks.paths):
                 if path.is_finished:
                     continue
+                cx, cy = path.filament_path[-1].center_x,  path.filament_path[-1].center_y
+                # if 400 <= cx <= 420 and 120 <= cy <= 142:
+                #     print('found him' * 50)
+
                 path.predict_next_state()
                 pidnf2pid[path_ind_notfinished] = path_ind
                 path_ind_notfinished += 1
@@ -1238,6 +1269,8 @@ class Video:
                 distance_to_fils = [INF_DISTANCE for _ in frame.filaments]
 
                 for fil_ind, f_filament in enumerate(frame.filaments):
+                    # if 410 <= f_filament.center_x <= 430 and 120 <= f_filament.center_y <= 150:
+                    #     print('found him' * 50)
                     filament_len = get_path_fil_length(path, path_filament_len_type)
 
                     max_length = max(f_filament.length, filament_len)
