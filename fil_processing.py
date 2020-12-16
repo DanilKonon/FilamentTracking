@@ -10,9 +10,16 @@ import pathlib
 import argparse
 from math import fabs
 from numba import jit
+from filterpy.kalman import KalmanFilter
+from filterpy.common import Q_discrete_white_noise
+# from fire import Cluster
+# from typing import List
+from collections import defaultdict, namedtuple
 
 FIRE_NUM = 5
 INF_DISTANCE = 10_000
+MIN_FIL_LEN_BF = 3
+
 
 def find_tip_in_filament(im, i, j, was_here, padding):
     was_here[i][j] = 255
@@ -261,8 +268,6 @@ class Filament:
         else:
             return img
 
-from filterpy.kalman import KalmanFilter
-from filterpy.common import Q_discrete_white_noise
 
 def init_kf():
     kf = KalmanFilter(dim_x=4, dim_z=2)
@@ -296,6 +301,7 @@ def init_kf():
 
     return kf
 
+
 class Dummy_Filament:
     """
     This dummy filament is used for Kalman filter and cm distance function
@@ -303,6 +309,7 @@ class Dummy_Filament:
     """
     def __init__(self, c_x, c_y):
         self.cm = np.array([c_x, c_y])
+
 
 class Path:
     def __init__(self, first_frame_num, filament : Filament, prediction_type='trivial'):
@@ -390,7 +397,6 @@ class Path:
         self.mean_length = sum([fil.length for fil in self.filament_path]) / len(self.filament_path)
 
 
-MIN_FIL_LEN_BF = 3
 def get_biggest_chunk_array(fil):
     if len(fil) <= MIN_FIL_LEN_BF:
         fil = None
@@ -446,6 +452,7 @@ def check_filament_length_ratio(max_length, min_length, ratio_big_filaments,
         raise NotImplementedError
 
     return -1
+
 
 # TODO: change this later as was discussed!!!
 def process_filaments_simple(filament_list):
@@ -547,6 +554,7 @@ def choose_distance(type_):
     elif type_ == 'cm_length':
         return Filament.fils_distance_cm_length
 
+
 def choose_gate_func(type_):
     if type_ == 'constant':
         return constant_gate
@@ -606,10 +614,6 @@ def motion_kalman(path: Path, distance_to_fils, num_of_sigmas=5):
 
 def motion_dense_gate(path: Path, distance_to_fils):
     pass
-
-# from fire import Cluster
-# from typing import List
-from collections import defaultdict, namedtuple
 
 
 class FireTrack:
