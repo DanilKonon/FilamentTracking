@@ -15,6 +15,7 @@ from filterpy.common import Q_discrete_white_noise
 # from fire import Cluster
 # from typing import List
 from collections import defaultdict, namedtuple
+from skimage.draw import rectangle_perimeter, ellipse_perimeter
 
 FIRE_NUM = 5
 INF_DISTANCE = 10_000
@@ -364,7 +365,7 @@ class Path:
 
     def predict_next_state(self):
         self.kf.predict()
-        self.predicted_history.append([self.kf.x, self.kf.P])
+        self.predicted_history.append([self.kf.x, self.kf.P, self.filament_path[-1]])
 
         if self.prediction_type == 'trivial':
             self.next_filament = self.filament_path[-1]
@@ -868,13 +869,13 @@ class Video:
     def update_path_to_results(self, path_to_res):
         self.path_to_results = path_to_res
 
-    def visualize_by_frames(self, save_file, save_to_path=True):
+    def visualize_by_frames(self, save_file=None):
         img = np.zeros(shape=[len(self.frames), self.width, self.height, 3])
         for frame_num, frame in enumerate(self.frames):
             for _, filament in enumerate(frame.filaments):
                 img[frame_num][filament.xs, filament.ys, 1:3] = 255
                 img[frame_num][filament.center_x, filament.center_y, 0] = 255
-        if save_to_path:
+        if save_file is not None:
             tifffile.imsave(save_file, data=img.astype('uint8'))
         else:
             return img.astype('uint8')
@@ -888,6 +889,74 @@ class Video:
                 img[inf][filament.xs, filament.ys, 1:3] = 255
                 img[inf][filament.center_x, filament.center_y, 0] = 255
         tifffile.imsave(save_file, data=img.astype('uint8'))
+
+    def visualize_by_frames_gates(self, path_to_file,
+                                  save_file=None,
+                                  gate_type='kalman_speed_est_square',
+                                  draw_all=False):
+        img_orig = tifffile.imread(str(path_to_file))
+        img = np.zeros(shape=[len(self.frames), self.width, self.height, 3])
+        img[:, :, :, 2] = img_orig
+        print(img_orig.shape)
+
+        for path in self.tracks.paths:
+            print(path.predicted_history)
+            for ind, (x, P, fil) in enumerate(path.predicted_history):
+                frame_num = path.first_frame_num + ind
+                # filament_center = min(int(x[0]), self.width-1), min(int(x[1]), self.height-1)
+                filament_center = fil.center_x, fil.center_y
+                img[frame_num, filament_center[0], filament_center[1], 0] = 255
+
+                if draw_all or gate_type == 'kalman_speed_est_square':
+                    found_displacement = np.sqrt(np.sum(x[2:, 0] ** 2))
+                    sigma2_x, sigma2_y = P[2, 2], P[3, 3]
+                    sigma = int(np.sqrt(sigma2_x + sigma2_y))
+                    constant = (found_displacement + 5 * sigma) // 2
+                    start = (filament_center[0] - constant , filament_center[1] - constant)
+                    end = (filament_center[0] + constant, filament_center[1] + constant)
+                    rr, cc = rectangle_perimeter(start, end=end, shape=img.shape[1:])
+                    if draw_all:
+                        img[frame_num, rr, cc, 2] = 255
+
+                if draw_all or gate_type == 'kalman_coords_est_square':
+                    found_displacement = 0 # np.sqrt(np.sum(x[2:, 0] ** 2))
+                    sigma2_x, sigma2_y = P[0, 0], P[1, 1]
+                    sigma = int(np.sqrt(sigma2_x + sigma2_y))
+                    constant = (found_displacement + 5 * sigma) // 2
+                    start = (filament_center[0] - constant , filament_center[1] - constant)
+                    end = (filament_center[0] + constant, filament_center[1] + constant)
+                    rr, cc = rectangle_perimeter(start, end=end, shape=img.shape[1:])
+                    if draw_all:
+                        img[frame_num, rr, cc, 0] = 255
+
+                if draw_all or gate_type == 'kalman_ellipsis_est_square':
+                    from filterpy.stats import covariance_ellipse
+                    # cov = np.array([[P[0, 0], P[2, 0]],
+                    #                 [P[0, 2], P[2, 2]]])
+                    # mean = (x[0, 0], x[2, 0])
+                    # plot_covariance_ellipse(mean, cov=cov, fc='g', std=3, alpha=0.5)
+                    cov = P[0:2, 0:2]
+                    ellipse = covariance_ellipse(cov)
+                    # angle = np.degrees(ellipse[0])
+                    angle = ellipse[0]
+                    width = ellipse[1]
+                    height = ellipse[2]
+
+                    rr, cc = ellipse_perimeter(
+                        fil.center_x, fil.center_y, int(3 * width), int(3 * height),
+                        angle, shape=img.shape[1:]
+                    )
+
+                    if draw_all:
+                        img[frame_num, rr, cc, 1:2] = 255
+
+                if not draw_all:
+                    img[frame_num, rr, cc, 1:3] = 255
+
+        if save_file is not None:
+            tifffile.imsave(save_file, data=img.astype('uint8'))
+        else:
+            return img.astype('uint8')
 
     def work_with_fire(self):
         def calc_distance_track_filament(track, filament):
@@ -1440,7 +1509,30 @@ def main(args):
     path_to_folder_results = pathlib.Path('./results_folders') / args.mdf_to_save
     path_to_folder_results.mkdir(exist_ok=True)
     vid.tracks._save_data_to_mtrackj_format_new(path_to_folder_results / path_to_file.with_suffix('.mdf').name)
-    # vid.visualize_by_frames('./visualized_pickle.tif')
+
+    vid.visualize_by_frames_gates(path_to_file, save_file='/Users/danilkononykhin/Desktop/first_vis_speed.tif')
+
+    vid.visualize_by_frames_gates(
+        path_to_file,
+        save_file='/Users/danilkononykhin/Desktop/first_vis_coords.tif',
+        gate_type='kalman_coords_est_square'
+    )
+
+    vid.visualize_by_frames_gates(
+        path_to_file,
+        save_file='/Users/danilkononykhin/Desktop/first_vis_ellipse.tif',
+        gate_type='kalman_ellipsis_est_square'
+    )
+
+    vid.visualize_by_frames_gates(
+        path_to_file,
+        save_file='/Users/danilkononykhin/Desktop/first_vis_all.tif',
+        gate_type='kalman_ellipsis_est_square',
+        draw_all=True
+    )
+
+    vid.visualize_by_frames(save_file='/Users/danilkononykhin/Desktop/all_fils_viz.tif')
+
     # vid.visualize_by_frames(str(path_to_results / './what_filament_left_fire_2.tif'))
     # for frame in vid.frames:
     #     Filament.draw_filaments(frame.filaments, np.zeros([512, 512, 3]))
