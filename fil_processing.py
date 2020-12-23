@@ -311,6 +311,111 @@ class Dummy_Filament:
     def __init__(self, c_x, c_y):
         self.cm = np.array([c_x, c_y])
 
+import numpy as np
+from scipy.stats import norm, gamma, uniform
+import skimage.draw
+import cv2
+
+# press ESC to exit the demo!
+from pfilter import (
+    ParticleFilter,
+    gaussian_noise,
+    squared_error,
+    independent_sample,
+)
+
+img_size = 512
+
+
+def blob(x):
+    """Given an Nx3 matrix of blob positions and size,
+    create N img_size x img_size images, each with a blob drawn on
+    them given by the value in each row of x
+
+    One row of x = [x,y]."""
+    y = np.zeros((x.shape[0], img_size, img_size))
+    for i, particle in enumerate(x):
+        y[i, int(particle[0]), int(particle[1])] = 1
+    return y
+
+
+def observe_fn(x):
+    """Given an Nx3 matrix of blob positions and size,
+    create N img_size x img_size images, each with a blob drawn on
+    them given by the value in each row of x
+
+    One row of x = [x,y]."""
+    return x[:, :2]
+
+# names (this is just for reference for the moment!)
+columns = ["x", "y", "dx", "dy"]
+
+# very simple linear dynamics: x += dx
+def velocity(x):
+    dt = 1.0
+    xp = (
+            x
+            @ np.array(
+        [
+            [1, 0, dt, 0],
+            [0, 1, 0, dt],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ]
+    ).T
+    )
+    return xp
+
+
+def squared_error_2(x, y, sigma=1):
+    # RBF kernel
+    d = np.sum((x - y) ** 2, axis=1)
+    return np.exp(-d / (2.0 * sigma ** 2))
+
+
+def init_pf(init_x):
+    # create the filter
+    prior_fn = independent_sample(
+        [
+            uniform(loc=0, scale=img_size).rvs,
+            uniform(loc=0, scale=img_size).rvs,
+            norm(loc=0, scale=5).rvs,
+            norm(loc=0, scale=5).rvs,
+        ]
+    )
+
+    pf = ParticleFilter(
+        prior_fn=prior_fn,
+        observe_fn=observe_fn,
+        n_particles=1000,
+        dynamics_fn=velocity,
+        noise_fn=lambda x: gaussian_noise(x, sigmas=[10, 10, 5, 5]),
+        weight_fn=lambda x, y: squared_error_2(x, y, sigma=5),
+        resample_proportion=0.05,
+        column_names=columns,
+    )
+
+    x, y = init_x
+    pf.update(np.array([[x, y]]).reshape([1, 2]))
+    return pf
+
+
+class AbsParticleFilter:
+    def __init__(self, init_pos):
+        # x, y, dx/dt, dy/dt
+        self.pf = init_pf(init_pos)
+
+    def predict(self):
+        self.pf.update()
+        x_hat, y_hat, s_hat, dx_hat, dy_hat = self.pf.mean_state
+        # # draw individual particles
+        # for particle in pf.original_particles:
+        #
+        #     xa, ya, _, _ = particle
+
+    def update(self, z):
+        self.pf.update(z)
+
 
 class Path:
     def __init__(self, first_frame_num, filament : Filament, prediction_type='trivial'):
@@ -330,6 +435,9 @@ class Path:
         self.kf = init_kf()
         self.kf.x[:2] = filament.cm[:, np.newaxis]
         self.predicted_history = []
+
+        self.pf = AbsParticleFilter(filament.cm)
+        self.predicted_history_pf = []
 
     @property
     def last_filament(self):
@@ -366,6 +474,9 @@ class Path:
     def predict_next_state(self):
         self.kf.predict()
         self.predicted_history.append([self.kf.x, self.kf.P, self.filament_path[-1]])
+        self.predicted_history_pf.append([
+            self.pf.pf.mean_state, self.pf.pf.particles, self.filament_path[-1]
+        ])
 
         if self.prediction_type == 'trivial':
             self.next_filament = self.filament_path[-1]
@@ -394,6 +505,7 @@ class Path:
     def add(self, filament):
         self.filament_path.append(filament)
         self.kf.update(np.reshape(filament.cm, [2, 1]))
+        self.pf.update(np.reshape(filament.cm, [1, 2]))
         # TODO: fix mean calc, make more fast
         self.mean_length = sum([fil.length for fil in self.filament_path]) / len(self.filament_path)
 
@@ -563,6 +675,8 @@ def choose_gate_func(type_):
         return motion_gate
     elif type_ == 'motion_kalman':
         return motion_kalman
+    elif type_ == 'motion_kalman_pos':
+        return motion_kalman_pos
     elif type_ == 'motion_dense':
         return motion_dense_gate
 
@@ -611,6 +725,10 @@ def motion_kalman(path: Path, distance_to_fils, num_of_sigmas=5):
     sigma2_x, sigma2_y = path.kf.P[2, 2], path.kf.P[3, 3]
     sigma = np.sqrt(sigma2_x + sigma2_y)
     return constant_gate(path, distance_to_fils, constant=found_displacement + num_of_sigmas * sigma)
+
+
+def motion_kalman_pos(path: Path, distance_to_fils, num_of_sigmas=5):
+    raise NotImplementedError
 
 
 def motion_dense_gate(path: Path, distance_to_fils):
@@ -900,7 +1018,7 @@ class Video:
         print(img_orig.shape)
 
         for path in self.tracks.paths:
-            print(path.predicted_history)
+            # print(path.predicted_history)
             for ind, (x, P, fil) in enumerate(path.predicted_history):
                 frame_num = path.first_frame_num + ind
                 # filament_center = min(int(x[0]), self.width-1), min(int(x[1]), self.height-1)
@@ -952,6 +1070,38 @@ class Video:
 
                 if not draw_all:
                     img[frame_num, rr, cc, 1:3] = 255
+
+        if save_file is not None:
+            tifffile.imsave(save_file, data=img.astype('uint8'))
+        else:
+            return img.astype('uint8')
+
+
+    def visualize_by_frames_pf(self, path_to_file,
+                                  save_file=None,
+                                  draw_all=False):
+        img_orig = tifffile.imread(str(path_to_file))
+        img = np.zeros(shape=[len(self.frames), self.width, self.height, 3])
+        img[:, :, :, 2] = img_orig
+        print(img_orig.shape)
+
+        flag = False
+        for path in self.tracks.paths:
+            # if len(path.filament_path) > 10:
+            #     flag = True
+            # if not flag:
+            #     continue
+            # print(path.predicted_history)
+            for ind, (mean_state, all_particles, fil) in enumerate(path.predicted_history_pf):
+                frame_num = path.first_frame_num + ind
+                filament_center = fil.center_x, fil.center_y
+                img[frame_num, filament_center[0], filament_center[1], 0] = 255
+                for particle in all_particles:
+                    if particle[0] < 0 or particle[0] > self.width or particle[1] < 0 or particle[1] > self.height:
+                        continue
+                    img[frame_num, int(particle[0]), int(particle[1]), 1:3] = 255
+            # break
+
 
         if save_file is not None:
             tifffile.imsave(save_file, data=img.astype('uint8'))
@@ -1532,6 +1682,11 @@ def main(args):
     )
 
     vid.visualize_by_frames(save_file='/Users/danilkononykhin/Desktop/all_fils_viz.tif')
+
+    vid.visualize_by_frames_pf(
+        path_to_file,
+        save_file='/Users/danilkononykhin/Desktop/first_vis_pfs.tif'
+    )
 
     # vid.visualize_by_frames(str(path_to_results / './what_filament_left_fire_2.tif'))
     # for frame in vid.frames:
