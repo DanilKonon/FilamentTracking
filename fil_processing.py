@@ -677,11 +677,15 @@ def choose_gate_func(type_):
         return motion_kalman
     elif type_ == 'motion_kalman_pos':
         return motion_kalman_pos
+    elif type_ == 'motion_pf_pos':
+        return motion_pf_pos
+    elif type_ == 'motion_pf_mah':
+        return motion_pf_mah
     elif type_ == 'motion_dense':
         return motion_dense_gate
 
 
-def constant_gate(path: Path, distance_to_fils, constant=20):
+def constant_gate(path: Path, distance_to_fils, constant=40):
     new_distance_to_fils = []
     for dist in distance_to_fils:
         if dist > constant:
@@ -691,7 +695,7 @@ def constant_gate(path: Path, distance_to_fils, constant=20):
 
 
 def motion_gate(path: Path, distance_to_fils):
-    if len(path.filament_path) < 4:
+    if len(path.filament_path) < 2:
         return constant_gate(path, distance_to_fils)
 
     # TODO: optimize calculations, maybe add more weight to last measurements
@@ -718,9 +722,8 @@ def motion_gate(path: Path, distance_to_fils):
 
 # Add variations to this parameter
 def motion_kalman(path: Path, distance_to_fils, num_of_sigmas=5):
-    if len(path.filament_path) < 4:
-        return constant_gate(path, distance_to_fils)
-
+    # if len(path.filament_path) < 4:
+    #     return constant_gate(path, distance_to_fils)
     found_displacement = np.sqrt(np.sum(path.kf.x[2:, 0] ** 2))
     sigma2_x, sigma2_y = path.kf.P[2, 2], path.kf.P[3, 3]
     sigma = np.sqrt(sigma2_x + sigma2_y)
@@ -728,6 +731,20 @@ def motion_kalman(path: Path, distance_to_fils, num_of_sigmas=5):
 
 
 def motion_kalman_pos(path: Path, distance_to_fils, num_of_sigmas=5):
+    sigma2_x, sigma2_y = path.kf.P[0, 0], path.kf.P[1, 1]
+    sigma = int(np.sqrt(sigma2_x + sigma2_y))
+    # constant = (5 * sigma) // 2
+    return constant_gate(path, distance_to_fils, constant=num_of_sigmas * sigma)
+
+
+def motion_pf_pos(path: Path, distance_to_fils, num_of_sigmas=5):
+    sigma2_x, sigma2_y = path.pf.pf.cov_state[0, 0], path.pf.pf.cov_state[1, 1]
+    sigma = int(np.sqrt(sigma2_x + sigma2_y))
+    # constant = (5 * sigma) // 2
+    return constant_gate(path, distance_to_fils, constant=num_of_sigmas * sigma)
+
+
+def motion_pf_mah():
     raise NotImplementedError
 
 
@@ -1587,7 +1604,7 @@ def create_argparse():
     parser.add_argument('--prediction_type', type=str, default='trivial', choices=['trivial', 'kalman'],
                         help="predict next filament cm with kalman filter or not")
     parser.add_argument('--gate_type', type=str, default='constant',
-                        choices=['constant', 'motion', 'motion_kalman', 'motion_dense'],
+                        choices=['constant', 'motion', 'motion_kalman', 'motion_kalman_pos', 'motion_pf_pos', 'motion_dense'],
                         help="what type of gate to use for gnn method")
     parser.add_argument('--path_filament_len_type', type=str, default='last', choices=['last', 'mean'],
                         help="how to find len of filament in path")
