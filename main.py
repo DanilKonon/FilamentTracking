@@ -411,7 +411,7 @@ class TiffVideo:
         # self.results is binarized images.
         self.video = Video(self.results, self.fire_frames, processing_type, self.path_to_results)
 
-        images = self.video.visualize_by_frames('', save_to_path=False)
+        images = self.video.visualize_by_frames()
         images[:, :, :, 0] = np.array(self.results)[:, :, :, 1]
         # images[:, :, :, 1] = np.array(self.results)[:, :, :, 1]
 

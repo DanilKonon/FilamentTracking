@@ -1093,7 +1093,6 @@ class Video:
         else:
             return img.astype('uint8')
 
-
     def visualize_by_frames_pf(self, path_to_file,
                                   save_file=None,
                                   draw_all=False):
@@ -1473,11 +1472,6 @@ class Video:
                          process_length_small_filaments_type='simple', len_small_filaments=20,
                          ratio_big_filaments=1.5, ratio_small_filaments=3.5,
                          add_filaments_fast=True, prediction_type='trivial'):
-        """
-        with or withput Kalman Filter we will try to estimate
-        next element with linear assignment problem!
-        :return:
-        """
         distance = choose_distance(distance_type)
         gate_func = choose_gate_func(gate_type)
         add_filament = choose_add_fil_func(add_filaments_fast)
