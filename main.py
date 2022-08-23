@@ -390,6 +390,10 @@ class TiffVideo:
 
     def __init__(self, params):
         self.params = params
+        if 'parent_folder_name' in self.params:
+            self.path_to_results = self.path_to_results / self.params['parent_folder_name']
+            self.path_to_results.mkdir(exist_ok=True)
+
         self.path_to_results = self.path_to_results / params['file_path'].stem
         print(self.path_to_results)
         self.path_to_results.mkdir(exist_ok=True)
@@ -485,11 +489,11 @@ class TiffVideo:
         self.t = tifffile.imread(str(file_path))
         self.results = tifffile.imread(str(self.result_file))
 
-    @staticmethod
-    def _get_info_from_file_path(file_path):
+    def _get_info_from_file_path(self, file_path):
         file_name = file_path.name
-        folder_name = file_path.stem
-        directory = Path.cwd() / 'results' / folder_name
+        # folder_name = file_path.stem
+        # directory = Path.cwd() / 'results' / folder_name
+        directory = self.path_to_results
         directory.mkdir(parents=True, exist_ok=True)  # exist_ok?, iterate?
         result_file = directory / file_name
         return result_file
@@ -545,7 +549,7 @@ class TiffVideo:
 
 def create_argparse():
     parser = argparse.ArgumentParser(description='Process tiff file with filaments for future analysis')
-    parser.add_argument('file_path', type=str, help="path to tiff file for analysis")
+    parser.add_argument('file_path', type=str, help="path to tiff file for analysis (or folder)")
     parser.add_argument('--sigma', type=float, default=2.0, help='sigma in gaussian')
     parser.add_argument('--m_percent', type=float, default=0.8, help='canny parameter for hysteresis')
     parser.add_argument('--processing_frame', type=str, default='simple', help='does nothing for noe')
@@ -553,21 +557,36 @@ def create_argparse():
     return parser
 
 
-# TODO: add config! or argparse
 # TODO: use only argparse withput dict params
 def main(args):
-    params = {
-        'sigma': args.sigma,
-        'to_load': args.to_load,
-        'file_path': Path(args.file_path),
-        'm_percent': args.m_percent,
-        'processing_frame': args.processing_frame
-    }
+    path_to_file = Path(args.file_path)
+    if not path_to_file.is_dir():
+        params = {
+            'sigma': args.sigma,
+            'to_load': args.to_load,
+            'file_path': path_to_file,
+            'm_percent': args.m_percent,
+            'processing_frame': args.processing_frame
+        }
 
-    print(params)
+        print(params)
 
-    tf = TiffVideo(params)
-    # tf.save_pairs_to_pdf_file(mode='2')
+        tf = TiffVideo(params)
+        return
+
+    for file in path_to_file.iterdir():
+        if file.suffix not in ['.tiff', '.tif']:
+            print(f'skipped {file}')
+            continue
+        params = {
+            'sigma': args.sigma,
+            'to_load': args.to_load,
+            'file_path': file,
+            'm_percent': args.m_percent,
+            'processing_frame': args.processing_frame,
+            'parent_folder_name': path_to_file.stem
+        }
+        tf = TiffVideo(params)
 
 
 if __name__ == '__main__':

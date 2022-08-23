@@ -13,9 +13,12 @@ from numba import jit
 from filterpy.kalman import KalmanFilter
 from filterpy.common import Q_discrete_white_noise
 # from fire import Cluster
-# from typing import List
+from typing import List
 from collections import defaultdict, namedtuple
 from skimage.draw import rectangle_perimeter, ellipse_perimeter
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+
 
 FIRE_NUM = 5
 INF_DISTANCE = 10_000
@@ -749,7 +752,7 @@ def motion_pf_mah():
 
 
 def motion_dense_gate(path: Path, distance_to_fils):
-    pass
+    raise NotImplementedError
 
 
 class FireTrack:
@@ -1552,6 +1555,207 @@ class Video:
         self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 3]
         print(len(self.tracks.paths))
 
+    def create_links_neural(
+            self, distance_type='cm',
+            add_filaments_fast=True,
+            prediction_type='trivial'
+    ):
+        M = 4
+        d = 3
+        from model import get_full_model
+        neural_model = get_full_model()
+        neural_model.load_weights('/Users/danilkononykhin/Downloads/best_model.h5')
+        # model = load_model()
+
+        class PossibleTracks:
+            def __init__(self):
+                self.true_coords = []
+                self.possible_coords = []
+                self.is_alive = None
+                self.right_var = None
+
+        def get_possible_tracks(filament_1, frames, ind_frame, first_time=False):
+            dists = []
+            # what to do if filament_1 is dummy filament ??
+            for ind_2, filament_2 in enumerate(frames[ind_frame].filaments):
+                dists.append(Filament.fils_distance_cm(filament_1, filament_2))
+
+            closest_tracks = list(np.argsort(dists)[0:M])
+            closest_tracks.append(-1)
+            from random import shuffle
+            shuffle(closest_tracks)
+
+            possible_track = []
+            for possible_ind_fil in closest_tracks:
+                if possible_ind_fil != -1:
+                    possible_filament = frames[ind_frame].filaments[possible_ind_fil]
+                else:
+                    possible_filament = Filament(
+                        [[-1, -1]],
+                    )
+                    # if filament_1.track_struct is None:
+                    #     # assert we have here fp:
+                    #     # example: fp -> -1 -> ?
+                    #     print('track struct is None')
+                    #     assert filament_1.status == 'fp'
+                    #     track_struct = Path()
+                    #     track_struct.add(filament_1_for_dist)
+                    #     possible_filament = Filament(
+                    #         -1, -1,
+                    #         frame_num=filament_1.frame_num + 1,
+                    #         track_struct=track_struct,
+                    #         status='dummy'
+                    #     )
+                    # else:
+
+                possible_track.append([
+                    possible_filament
+                ])
+
+            if first_time:
+                return possible_track, closest_tracks
+
+            return possible_track
+
+        def construct_tree(path: Path, filament: Filament, frame_num: int, frames: List[Frame]):
+            d = 3
+            M = 4
+            poss_tracks = PossibleTracks()
+
+            true_coords = []
+            for fil in path.filament_path:
+                true_coords.append(fil)
+            poss_tracks.true_coords = true_coords
+
+            for i in range(d):
+                if i == 0:
+                    possible_coords_first, closest_filaments_indexies = get_possible_tracks(
+                        filament,
+                        frames,
+                        frame_num,
+                        first_time=True
+                    )
+                    poss_tracks.possible_coords = possible_coords_first
+                    continue
+
+                possible_coords_new = []
+                for fil_poss in poss_tracks.possible_coords:
+                    if frame_num + i == len(frames) - 1:
+                        continue
+
+                    # TODO: fix this here
+                    if fil_poss[-1].center_x == -1:
+                        filament_for_next = filament
+                    else:
+                        filament_for_next = fil_poss[-1]
+
+                    for cont in get_possible_tracks(filament_for_next, frames, frame_num + i):
+                        fil_poss_copy = [fil for fil in fil_poss]
+                        fil_poss_copy.extend(cont)
+                        possible_coords_new.append(fil_poss_copy)
+                poss_tracks.possible_coords = possible_coords_new
+
+            whole_coords_array_list = []
+            coord_list_all = []
+            for possible_coords in poss_tracks.possible_coords:
+                coord_list_all.append(
+                    [
+                        *[fil.cm.tolist() for fil in poss_tracks.true_coords],
+                        *[fil.cm.tolist() for fil in possible_coords]
+                    ]
+                )
+            coords_array = np.array(coord_list_all)
+            coords_array = coords_array[np.newaxis, ...]
+
+            return coords_array, closest_filaments_indexies
+
+        distance = choose_distance(distance_type)
+        add_filament = choose_add_fil_func(add_filaments_fast)
+
+        for frame_num, frame in enumerate(self.frames):
+            print(frame_num)
+            if len(self.frames) - frame_num == 4:
+                break
+
+            frame.filaments = [filament for filament in frame.filaments if filament.length != 0]
+            if frame_num == 0:
+                self.tracks = Tracks(frame, prediction_type)  # initialize all paths with filaments from first frame
+                continue
+
+            # get all previous links!
+            dist_matrix = []
+            # map from alll paths to not-finished
+            pidnf2pid = {}
+            path_ind_notfinished = 0
+            for path_ind, path in enumerate(self.tracks.paths):
+                if path.is_finished:
+                    continue
+                # path.predict_next_state()
+
+                # add one for dummy
+                distance_to_fils = np.array([INF_DISTANCE, *[INF_DISTANCE for _ in frame.filaments]], dtype=np.float)
+
+                filament = path.last_filament
+
+                if hasattr(filament, 'status') and filament.status == 'dummy':
+                    # find first found filament in track
+                    prev_fil = None
+                    for filament_1 in path.filament_path:
+                        if not hasattr(filament_1, 'status') or hasattr(filament_1, 'status')  and filament_1.status != 'dummy':
+                            prev_fil = filament_1
+                    assert prev_fil is not None
+                    filament_for_dist = prev_fil
+                else:
+                    filament_for_dist = filament
+
+                track_tree, possible_next_filaments_indexies = construct_tree(path, filament_for_dist, frame_num, self.frames)
+                prediction_track, prediction_dead_alive = neural_model(track_tree)
+                prediction_track, prediction_dead_alive = prediction_track.numpy()[0], prediction_dead_alive.numpy()[0]
+                if prediction_dead_alive[0] > prediction_dead_alive[1]:
+                    path.is_finished = True
+                    print('here')
+                    # dist_matrix.append(distance_to_fils)
+                    continue
+
+                pidnf2pid[path_ind_notfinished] = path_ind
+                path_ind_notfinished += 1
+                distance_to_fils[np.array(possible_next_filaments_indexies) + 1] = 1 - prediction_track
+
+                # TODO: fix! get rid of dummy filament for now
+                distance_to_fils = distance_to_fils[1:]
+
+                dist_matrix.append(distance_to_fils)
+
+            dist_matrix = np.array(dist_matrix)
+            # row_ind -- filaments from prev frames
+            # col_ind -- filaments from frames
+            row_ind, col_ind = linear_sum_assignment(dist_matrix)
+            path_nums_to_be_finished = [
+                path_num_to_finish for path_num_to_finish in pidnf2pid if path_num_to_finish not in row_ind
+            ]
+            for path_num_to_finish in path_nums_to_be_finished:
+                self.tracks.paths[pidnf2pid[path_num_to_finish]].is_finished = True
+            used_filaments = [0 for _ in frame.filaments]
+            for r_i, c_i in zip(row_ind, col_ind):
+                # a_r_i -- for self.tracks.paths
+                # r_i -- for cost_matrix
+                a_r_i = pidnf2pid[r_i]
+                path_to_continue = self.tracks.paths[a_r_i]
+                if dist_matrix[r_i, c_i] == INF_DISTANCE:
+                    path_to_continue.is_finished = True
+                else:
+                    used_filaments[c_i] += 1
+                    filament_to_continue_path = frame.filaments[c_i]
+                    add_filament(path_to_continue, filament_to_continue_path)
+
+            new_filaments = [ind for ind, number_of_usages in enumerate(used_filaments) if number_of_usages == 0]
+            self.tracks.paths += [Path(first_frame_num=frame_num, filament=frame.filaments[fil_num],
+                                       prediction_type=prediction_type) for fil_num in new_filaments]
+
+        print(len(self.tracks.paths))
+        self.tracks.paths = [path for path in self.tracks.paths if len(path.filament_path) >= 3]
+        print(len(self.tracks.paths))
+
 
 def load_vid(path_to_results: pathlib.Path, use_fire: bool, forse_calc_fire=False) -> Video:
     # TODO: make better save
@@ -1593,7 +1797,7 @@ def create_argparse():
                         help='what type of distance to use between filaments')
     parser.add_argument('--mdf_to_save', type=str, default='gnn_cm.mdf',
                         help="name of saved mdf file with tracking results")
-    parser.add_argument('--tracker_type', type=str, default='gnn', choices=['gnn', 'lap', 'kalman_lap'],
+    parser.add_argument('--tracker_type', type=str, default='gnn', choices=['gnn', 'lap', 'neural'],
                         help="data association method to use")
     parser.add_argument('--prediction_type', type=str, default='trivial', choices=['trivial', 'kalman'],
                         help="predict next filament cm with kalman filter or not")
@@ -1661,9 +1865,15 @@ def main(args):
             add_filaments_fast=args.add_filaments_fast,
             prediction_type=args.prediction_type
         )
+    elif args.tracker_type == 'neural':
+        vid.create_links_neural(
+            distance_type=args.dist_type,
+            add_filaments_fast=args.add_filaments_fast
+        )
     else:
         print('Something is wrong. Not known tracker type')
         return
+
     vid.tracks._save_data_to_mtrackj_format_new(path_to_results / args.mdf_to_save)
 
     pathlib.Path('./results_folders').mkdir(exist_ok=True)
@@ -1671,33 +1881,33 @@ def main(args):
     path_to_folder_results.mkdir(exist_ok=True)
     vid.tracks._save_data_to_mtrackj_format_new(path_to_folder_results / path_to_file.with_suffix('.mdf').name)
 
-    vid.visualize_by_frames_gates(path_to_file, save_file='/Users/danilkononykhin/Desktop/first_vis_speed.tif')
-
-    vid.visualize_by_frames_gates(
-        path_to_file,
-        save_file='/Users/danilkononykhin/Desktop/first_vis_coords.tif',
-        gate_type='kalman_coords_est_square'
-    )
-
-    vid.visualize_by_frames_gates(
-        path_to_file,
-        save_file='/Users/danilkononykhin/Desktop/first_vis_ellipse.tif',
-        gate_type='kalman_ellipsis_est_square'
-    )
-
-    vid.visualize_by_frames_gates(
-        path_to_file,
-        save_file='/Users/danilkononykhin/Desktop/first_vis_all.tif',
-        gate_type='kalman_ellipsis_est_square',
-        draw_all=True
-    )
-
-    vid.visualize_by_frames(save_file='/Users/danilkononykhin/Desktop/all_fils_viz.tif')
-
-    vid.visualize_by_frames_pf(
-        path_to_file,
-        save_file='/Users/danilkononykhin/Desktop/first_vis_pfs.tif'
-    )
+    # vid.visualize_by_frames_gates(path_to_file, save_file='/Users/danilkononykhin/Desktop/first_vis_speed.tif')
+    #
+    # vid.visualize_by_frames_gates(
+    #     path_to_file,
+    #     save_file='/Users/danilkononykhin/Desktop/first_vis_coords.tif',
+    #     gate_type='kalman_coords_est_square'
+    # )
+    #
+    # vid.visualize_by_frames_gates(
+    #     path_to_file,
+    #     save_file='/Users/danilkononykhin/Desktop/first_vis_ellipse.tif',
+    #     gate_type='kalman_ellipsis_est_square'
+    # )
+    #
+    # vid.visualize_by_frames_gates(
+    #     path_to_file,
+    #     save_file='/Users/danilkononykhin/Desktop/first_vis_all.tif',
+    #     gate_type='kalman_ellipsis_est_square',
+    #     draw_all=True
+    # )
+    #
+    # vid.visualize_by_frames(save_file='/Users/danilkononykhin/Desktop/all_fils_viz.tif')
+    #
+    # vid.visualize_by_frames_pf(
+    #     path_to_file,
+    #     save_file='/Users/danilkononykhin/Desktop/first_vis_pfs.tif'
+    # )
 
     # vid.visualize_by_frames(str(path_to_results / './what_filament_left_fire_2.tif'))
     # for frame in vid.frames:
